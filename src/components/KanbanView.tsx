@@ -22,7 +22,7 @@ export default function KanbanView({ groups, onTaskClick }: KanbanViewProps) {
 
   const columns = statusOrder.map((status) => ({
     status,
-    tasks: allTasks.filter((t) => t.status === status),
+    tasks: allTasks.filter((t) => (t as any).columnValues?.status === status || (!status && !(t as any).columnValues?.status)),
   }));
 
   return (
@@ -45,18 +45,20 @@ export default function KanbanView({ groups, onTaskClick }: KanbanViewProps) {
             <div className="space-y-2">
               {tasks.map((task) => {
                 const group = groups.find((g) => g.id === task.groupId);
+                const priority = (task as any).columnValues?.priority || 'medium';
                 return (
                   <div
                     key={task.id}
-                    onClick={() => onTaskClick(task)}
+                    onClick={(e) => { if (e.detail === 3) onTaskClick(task); }}
                     className="bg-background rounded-md p-3 border border-border hover:shadow-md cursor-pointer transition-all"
                   >
-                    <p className="text-sm font-medium text-foreground mb-2">{task.title}</p>
+
+                    <p className="text-sm font-medium text-foreground mb-2">{task.name}</p>
                     <div className="flex items-center justify-between">
-                      <PriorityBadge priority={task.priority} />
-                      {task.assignee && (
+                      <PriorityBadge priority={priority} />
+                      {(task as any).columnValues?.person && (
                         <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">
-                          {task.assignee.name.split(' ').map(n => n[0]).join('')}
+                           {(task as any).columnValues.person.name?.[0] || 'U'}
                         </div>
                       )}
                     </div>
@@ -73,3 +75,4 @@ export default function KanbanView({ groups, onTaskClick }: KanbanViewProps) {
     </div>
   );
 }
+

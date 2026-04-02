@@ -48,7 +48,16 @@ CREATE TABLE IF NOT EXISTS task_values (
 );
 
 -- Habilitar Realtime (Opcional no Supabase para ver updates na hora)
--- ALTER PUBLICATION supabase_realtime ADD TABLE boards, board_columns, task_groups, tasks, task_values;
+-- ALTER PUBLICATION supabase_realtime ADD TABLE boards, board_columns, task_groups, tasks, task_values, team_members;
+
+-- 6. Tabela de Membros da Equipe (Team Members)
+CREATE TABLE IF NOT EXISTS team_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  role TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 
 -- Inserir Board Inicial para teste (Se desejar que o banco não comece vazio)
 -- INSERT INTO boards (title) VALUES ('Meu Primeiro Quadro');

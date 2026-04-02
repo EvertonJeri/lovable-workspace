@@ -24,7 +24,8 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       // Usar a lógica robusta de extração, tolerando chaves diretas ou mapeamento pelo título da coluna
       const val = (key: string, alternatives: string[]) => {
         if (t.columnValues[key] !== undefined) return t.columnValues[key];
-        for (const alt of alternatives) {
+        const allAlts = [key, ...alternatives];
+        for (const alt of allAlts) {
           const col = board.columns.find(c => c.title.toLowerCase().replace(/[^a-z0-9]/g, '') === alt.toLowerCase().replace(/[^a-z0-9]/g, ''));
           if (col && t.columnValues[col.id] !== undefined) return t.columnValues[col.id];
           if (t.columnValues[alt] !== undefined) return t.columnValues[alt];
@@ -32,20 +33,20 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
         return '';
       };
       
-      const percentual = parseFloat(val('percentual', ['conclusao', '%'])) || 0;
-      const orado = parseFloat(val('orado', ['orcado', 'budget'])) || 0;
-      const semana01 = parseFloat(val('semana01', ['sem01', 's1'])) || 0;
-      const semana02 = parseFloat(val('semana02', ['sem02', 's2'])) || 0;
-      const semana03 = parseFloat(val('semana03', ['sem03', 's3'])) || 0;
-      const semana04 = parseFloat(val('semana04', ['sem04', 's4'])) || 0;
-      const semana05 = parseFloat(val('semana05', ['sem05', 's5'])) || 0;
+      const percentual = parseFloat(String(val('percentual', ['conclusao', '%', 'progress', 'progresso']))) || 0;
+      const orado = parseFloat(String(val('orado', ['orcado', 'budget', 'orçamento', 'orcamento']))) || 0;
+      const semana01 = parseFloat(String(val('semana01', ['sem01', 's1']))) || 0;
+      const semana02 = parseFloat(String(val('semana02', ['sem02', 's2']))) || 0;
+      const semana03 = parseFloat(String(val('semana03', ['sem03', 's3']))) || 0;
+      const semana04 = parseFloat(String(val('semana04', ['sem04', 's4']))) || 0;
+      const semana05 = parseFloat(String(val('semana05', ['sem05', 's5']))) || 0;
 
       return {
         id: t.id,
         name: t.name,
         groupName: g.title,
         groupId: g.id,
-        subitemName: String(val('subitemName', ['setor', 'subitem'])) || '',
+        subitemName: String(val('subitemName', ['setor', 'subitem', 'subitem name', 'responsável', 'assignee'])) || t.name,
         percentual,
         orado,
         semana01,
@@ -53,13 +54,13 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
         semana03,
         semana04,
         semana05,
-        status: String(val('status', [])) || 'default'
+        status: String(val('status', ['status'])) || 'default'
       };
     }));
   }, [board]);
 
   const workItems = useMemo(() => {
-    return allItems.filter(item => item.subitemName && item.subitemName.trim() !== '');
+    return allItems.filter(item => item.name || item.subitemName);
   }, [allItems]);
 
   const {
@@ -74,14 +75,20 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
     criticalItems
   } = useMemo(() => {
     
+    // 0. Active Items for Percentage filtering
+    const activeItems = workItems.map(item => ({
+      ...item,
+      activePercentual: selectedWeek === 'all' ? item.percentual : (item[selectedWeek as keyof typeof item] as number || 0)
+    }));
+
     // 1. Projetos Únicos
     const projSet = new Set<string>();
-    workItems.forEach(i => projSet.add(i.groupId));
+    activeItems.forEach(i => projSet.add(i.groupId));
     const uniqueProjects = projSet.size;
 
     // 2. Conclusão Geral
-    const percentSum = workItems.reduce((acc, curr) => acc + curr.percentual, 0);
-    const conclusaoGeral = workItems.length > 0 ? percentSum / workItems.length : 0;
+    const percentSum = activeItems.reduce((acc, curr) => acc + curr.activePercentual, 0);
+    const conclusaoGeral = activeItems.length > 0 ? percentSum / activeItems.length : 0;
 
     // 3. Total/Budget por Semana
     const semanas = ['semana01', 'semana02', 'semana03', 'semana04', 'semana05'] as const;
@@ -90,18 +97,12 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
     };
     
     semanas.forEach(semana => {
-      const globalUniqueValues = new Set<string>();
-      workItems.forEach(item => {
-        const weekPercent = item[semana];
-        const budget = item.orado;
+      activeItems.forEach(item => {
+        const weekPercent = item[semana] || 0;
+        const budget = item.orado || 0;
         
         if (weekPercent > 0 && budget > 0) {
-          const valueKey = `${weekPercent}_${budget}`;
-          if (!globalUniqueValues.has(valueKey)) {
-            globalUniqueValues.add(valueKey);
-            const itemValue = (weekPercent * budget) / 100;
-            valueByWeek[semana] += itemValue;
-          }
+          valueByWeek[semana] += (weekPercent * budget) / 100;
         }
       });
     });
@@ -114,12 +115,12 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
 
     // 4. Group Summaries & Projetos em Risco
     const gs: Record<string, any> = {};
-    workItems.forEach(i => {
+    activeItems.forEach(i => {
       if (!gs[i.groupId]) gs[i.groupId] = { id: i.groupId, name: i.groupName, percentSum: 0, oradoSum: 0, count: 0, pendentes: 0 };
-      gs[i.groupId].percentSum += i.percentual;
+      gs[i.groupId].percentSum += i.activePercentual;
       gs[i.groupId].oradoSum += i.orado;
       gs[i.groupId].count += 1;
-      if (i.percentual < 100) gs[i.groupId].pendentes += 1;
+      if (i.activePercentual < 100) gs[i.groupId].pendentes += 1;
     });
 
     let riskCount = 0;
@@ -131,10 +132,10 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
     
     // 5. Ranking de Setores & Top Performer
     const ss: Record<string, any> = {};
-    workItems.forEach(i => {
+    activeItems.forEach(i => {
       const setor = i.subitemName.trim();
       if (!ss[setor]) ss[setor] = { name: setor, percentSum: 0, count: 0 };
-      ss[setor].percentSum += i.percentual;
+      ss[setor].percentSum += i.activePercentual;
       ss[setor].count += 1;
     });
 
@@ -153,15 +154,16 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
     }
 
     // 7. Critical Items
-    const criticalItems = [...workItems]
-      .filter(i => i.percentual < 30 && i.orado > 3000)
+    const criticalItems = [...activeItems]
+      .filter(i => i.activePercentual < 30 && i.orado > 3000)
       .sort((a, b) => b.orado - a.orado)
-      .slice(0, 10);
+      .slice(0, 10)
+      .map(i => ({ ...i, percentual: i.activePercentual }));
 
     return {
       uniqueProjects, totalValueByWeek, conclusaoGeral, projetosEmRisco: riskCount, topPerformer, velocidadeSemanal, groupSummaries, setorRanking, criticalItems
     };
-  }, [workItems]);
+  }, [workItems, selectedWeek]);
 
   const filteredChartData = selectedWeek === 'all' 
     ? totalValueByWeek 
@@ -257,7 +259,7 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Gráfico de Valor Produzido */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm lg:col-span-2 flex flex-col">
-          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Valor Produzido (Deduplicado)</h3>
+          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Valor Produzido</h3>
           <div className="flex-1 min-h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={filteredChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>

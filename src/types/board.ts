@@ -47,7 +47,9 @@ export interface Task {
   columnValues: Record<string, any>;
   orderIndex: number;
   subitems?: Task[];
+  archived?: boolean;
 }
+
 
 export interface TaskGroup {
   id: string;
@@ -55,7 +57,9 @@ export interface TaskGroup {
   color: GroupColor;
   tasks: Task[];
   collapsed?: boolean;
+  archived?: boolean;
 }
+
 
 export interface Board {
   id: string;

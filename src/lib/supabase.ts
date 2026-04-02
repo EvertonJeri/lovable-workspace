@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://lxsobpccduvcgmmxvuvr.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'placeholder-key';
 
 // Create a safe supabase client - won't crash even if credentials are wrong
 let supabaseInstance: SupabaseClient;
@@ -22,11 +22,12 @@ export async function fetchBoards() {
       .select(`
         id,
         title,
+        workspace_id,
         board_columns (
-          id, title, type, width, unit, summary_type, position
+          id, title, type, width, unit, summary_type, position, formula_expr
         ),
         task_groups (
-          id, title, color, position,
+          id, title, color, position, is_archived,
           tasks (
             id, name, created_at, position,
             task_values (
@@ -38,16 +39,32 @@ export async function fetchBoards() {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.warn('Supabase fetch error (using local data):', error.message);
-      return [];
+      console.error('CRITICAL: Supabase fetch error:', error.message);
+      // Retornamos um erro customizado para o Index.tsx tratar e avisar o usuário
+      throw new Error(`Database connection failed: ${error.message}`);
     }
 
     return (boards || []).map(board => ({
-      ...board,
-      columns: (board.board_columns || []).sort((a: any, b: any) => a.position - b.position),
+      id: board.id,
+      title: board.title,
+      workspaceId: board.workspace_id || 'default',
+      columns: (board.board_columns || []).map((col: any) => ({
+        id: col.id,
+        title: col.title,
+        type: col.type,
+        width: col.width,
+        unit: col.unit,
+        summaryType: col.summary_type,
+        position: col.position,
+        formulaExpr: col.formula_expr
+      })).sort((a: any, b: any) => a.position - b.position),
       groups: (board.task_groups || []).sort((a: any, b: any) => a.position - b.position).map((group: any) => ({
-        ...group,
+        id: group.id,
+        title: group.title,
+        color: group.color,
+        archived: !!group.is_archived,
         tasks: (group.tasks || []).sort((a: any, b: any) => a.position - b.position).map((task: any) => {
+
           const columnValues: Record<string, any> = {};
           (task.task_values || []).forEach((val: any) => {
             columnValues[val.column_id] = val.value;

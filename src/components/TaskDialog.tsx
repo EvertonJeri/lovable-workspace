@@ -1,7 +1,7 @@
 import { Task, TaskStatus, TaskPriority, STATUS_LABELS, PRIORITY_LABELS, BoardColumn, ColumnType } from '@/types/board';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { StatusBadge, PriorityBadge } from './StatusBadge';
-import { Calendar, User, Flag, Tag, Hash, Type, Link as LinkIcon, Paperclip, BarChart, Clock } from 'lucide-react';
+import { Calendar, User, Flag, Tag, Hash, Type, Link as LinkIcon, Paperclip, BarChart, Clock, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -12,12 +12,13 @@ interface TaskDialogProps {
   open: boolean;
   onClose: () => void;
   onUpdate: (task: Task) => void;
+  onDelete: (taskId: string) => void;
 }
 
 const statusOptions: TaskStatus[] = ['default', 'working', 'stuck', 'done'];
 const priorityOptions: TaskPriority[] = ['low', 'medium', 'high', 'critical'];
 
-export default function TaskDialog({ task, columns, open, onClose, onUpdate }: TaskDialogProps) {
+export default function TaskDialog({ task, columns, open, onClose, onUpdate, onDelete }: TaskDialogProps) {
   if (!task) return null;
 
   const updateColumnValue = (columnId: string, value: any) => {
@@ -174,7 +175,10 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate }: T
                         type="number"
                         className="text-sm text-[#323338] bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:ring-0 p-0 w-full"
                         value={value || ''}
-                        onChange={(e) => updateColumnValue(column.id, parseFloat(e.target.value))}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          updateColumnValue(column.id, isNaN(val) ? null : val);
+                        }}
                       />
                     )}
 
@@ -245,8 +249,14 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate }: T
 
         <div className="p-4 bg-slate-50 border-t flex items-center justify-between">
            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="text-[11px] text-[#676879]">Atualizado agora</span>
+              <button 
+                onClick={() => { onDelete(task.id); onClose(); }}
+                className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors flex items-center gap-2 text-xs font-medium"
+                title="Excluir tarefa"
+              >
+                <Trash2 className="w-4 h-4" />
+                Excluir tarefa
+              </button>
            </div>
            <button 
              onClick={onClose}

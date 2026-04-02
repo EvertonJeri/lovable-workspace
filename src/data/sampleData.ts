@@ -14,7 +14,7 @@ export const sampleBoards: Board[] = [
   // ========== PPCP - Cronograma de Produção ==========
   {
     id: 'ppcp-cronograma',
-    title: 'PPCP - Cronograma de Produção',
+    title: 'PPCP - Cronograma de Produção (MODELO)',
     workspaceId: 'ws-1',
     columns: [...defaultColumns],
     groups: [
@@ -74,16 +74,16 @@ export const sampleBoards: Board[] = [
   // ========== Desempenho Oficial ==========
   {
     id: 'desempenho-oficial',
-    title: 'Desempenho Oficial',
+    title: 'Desempenho Oficial (MODELO)',
     workspaceId: 'ws-1',
     columns: [
-      { id: 'c1', type: 'text', title: 'Elemento', width: 220, position: 0 },
-      { id: 'c2', type: 'text', title: 'Subitem Name', width: 200, position: 1 },
-      { id: 'c3', type: 'number', title: 'Percentual (%)', unit: '%', width: 120, summaryType: 'avg', position: 2 },
-      { id: 'c4', type: 'number', title: 'Orçado', unit: 'R$', width: 140, summaryType: 'sum', position: 3 },
-      { id: 'c5', type: 'number', title: 'Semana 01 (%)', unit: '%', width: 120, position: 4 },
-      { id: 'c6', type: 'number', title: 'Semana 02 (%)', unit: '%', width: 120, position: 5 },
-      { id: 'c7', type: 'number', title: 'Semana 03 (%)', unit: '%', width: 120, position: 6 },
+      { id: 'c3', type: 'number', title: 'Percentual (%)', unit: '%', width: 120, summaryType: 'avg', position: 0 },
+      { id: 'c4', type: 'number', title: 'Orçado', unit: 'R$', width: 140, summaryType: 'sum', position: 1 },
+      { id: 'c5', type: 'number', title: 'Semana 01 (%)', unit: '%', width: 120, position: 2 },
+      { id: 'c6', type: 'number', title: 'Semana 02 (%)', unit: '%', width: 120, position: 3 },
+      { id: 'c7', type: 'number', title: 'Semana 03 (%)', unit: '%', width: 120, position: 4 },
+      { id: 'c10', type: 'number', title: 'Semana 04 (%)', unit: '%', width: 120, position: 5 },
+      { id: 'c11', type: 'number', title: 'Semana 05 (%)', unit: '%', width: 120, position: 6 },
       { id: 'c8', type: 'status', title: 'Status', width: 140, position: 7 },
       { id: 'c9', type: 'formula', title: 'Fórmula', width: 140, position: 8 },
     ],

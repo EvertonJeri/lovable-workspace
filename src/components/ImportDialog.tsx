@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Task, TaskGroup, BoardColumn, GroupColor } from '@/types/board';
+import { Task, TaskGroup, BoardColumn, GroupColor, ColumnType } from '@/types/board';
 import { Clipboard, Check, X, LayoutGrid } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -29,92 +29,124 @@ export default function ImportDialog({ open, onClose, onImport, existingColumns 
     }
 
     const rows = text.split('\n').map(r => r.split('\t'));
-    if (rows.length < 1) {
-      toast.error('Dados insuficientes.');
+    if (rows.length < 2) {
+      toast.error('Dados insuficientes. Certifique-se de incluir a linha de cabeçalho.');
       return;
     }
 
-    const colsToUse = existingColumns.length > 0 ? existingColumns : undefined;
-    const groupColors: GroupColor[] = ['blue', 'green', 'purple', 'orange', 'red', 'teal', 'indigo', 'pink', 'grey'];
-    const groups: TaskGroup[] = [];
-    let currentGroup: TaskGroup | null = null;
-
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const firstCell = (row[0] || '').trim();
-      if (!firstCell) continue;
-
-      // If only 1 non-empty cell and text is long → treat as group header
-      const nonEmptyCells = row.filter(c => c.trim().length > 0).length;
-      const looksLikeGroup = nonEmptyCells <= 1 && firstCell.length > 3 && isNaN(Number(firstCell));
-
-      if (looksLikeGroup) {
-        currentGroup = {
-          id: `imp-g-${Date.now()}-${i}`,
-          title: firstCell,
-          color: groupColors[groups.length % groupColors.length],
-          tasks: []
-        };
-        groups.push(currentGroup);
-      } else {
-        if (!currentGroup) {
-          currentGroup = {
-            id: `imp-g-${Date.now()}-default`,
-            title: 'Itens Importados',
-            color: 'blue',
-            tasks: []
-          };
-          groups.push(currentGroup);
-        }
-
-        const columnValues: Record<string, any> = {};
-        if (colsToUse) {
-          colsToUse.forEach((col, idx) => {
-            const cellVal = (row[idx] || '').trim();
-            if (col.type === 'number' || col.type === 'progress') {
-              columnValues[col.id] = parseFloat(cellVal.replace(/\./g, '').replace(',', '.')) || 0;
-            } else if (col.type === 'status') {
-              const lower = cellVal.toLowerCase();
-              if (lower.includes('conclu') || lower.includes('done')) columnValues[col.id] = 'done';
-              else if (lower.includes('progresso') || lower.includes('working')) columnValues[col.id] = 'working';
-              else if (lower.includes('trava') || lower.includes('stuck')) columnValues[col.id] = 'stuck';
-              else columnValues[col.id] = 'default';
-            } else {
-              columnValues[col.id] = cellVal;
-            }
-          });
-        } else {
-          // no columns yet — store raw values with generic keys
-          row.forEach((cell, idx) => {
-            columnValues[`col-${idx}`] = cell.trim();
-          });
-        }
-
-        const task: Task = {
-          id: `imp-t-${Date.now()}-${i}`,
-          name: firstCell,
-          columnValues,
-          orderIndex: currentGroup.tasks.length,
-          groupId: currentGroup.id
-        };
-        currentGroup.tasks.push(task);
-      }
-    }
-
-    if (groups.length === 0 || groups.every(g => g.tasks.length === 0)) {
-      toast.error('Nenhuma tarefa detectada. Verifique o formato.');
-      return;
-    }
-
-    const totalTasks = groups.reduce((a, g) => a + g.tasks.length, 0);
-
-    // Clear state and close FIRST, then import with delay
-    setPasteContent('');
+    // Capture headers from first row
+    const headers = rows[0].map(h => h.trim().toLowerCase());
     
-    // Use setTimeout to ensure this runs AFTER React finishes closing the overlay
+    // Find key indices
+    const nameIdx = headers.findIndex(h => h === 'name' || h === 'nome' || h === 'grupo');
+    const taskIdx = headers.findIndex(h => h.includes('subitem') || h.includes('tarefa') || h === 'item');
+    
+    if (taskIdx === -1) {
+      toast.error('Não conseguimos identificar a coluna de "Tarefa" ou "Subitem Name".');
+      return;
+    }
+
+    const groupColors: GroupColor[] = ['blue', 'green', 'purple', 'orange', 'red', 'teal', 'indigo', 'pink', 'grey'];
+    const groupMap = new Map<string, TaskGroup>();
+    
+    // Column Mapping logic
+    const dataRows = rows.slice(1);
+    const newColumns: BoardColumn[] = [];
+    const colToIdxMap: Record<string, number> = {};
+
+    // 1. Identify which columns we need to create/map
+    headers.forEach((header, idx) => {
+      if (idx === nameIdx || idx === taskIdx || !header) return;
+      
+      // Try to find existing column by title
+      let existingCol = existingColumns.find(c => 
+        c.title.toLowerCase() === header || 
+        header.includes(c.title.toLowerCase()) ||
+        c.title.toLowerCase().includes(header)
+      );
+
+      if (existingCol) {
+        colToIdxMap[existingCol.id] = idx;
+      } else {
+        // Create a new column definition if not found
+        const type: ColumnType = header.includes('%') || header.includes('percentual') ? 'progress' :
+                                header.includes('reais') || header.includes('r$') || header.includes('orçado') ? 'number' : 'text';
+        
+        const newColId = crypto.randomUUID();
+        newColumns.push({
+          id: newColId,
+          title: rows[0][idx] || header,
+          type,
+          width: 140,
+          position: existingColumns.length + newColumns.length,
+          unit: header.includes('orçado') || header.includes('r$') ? 'R$' : undefined
+        });
+        colToIdxMap[newColId] = idx;
+      }
+    });
+
+    // 2. Process tasks and groups
+    for (const row of dataRows) {
+      if (row.length < 2 || (row[taskIdx] || '').trim() === '') continue;
+      
+      const groupName = nameIdx !== -1 ? (row[nameIdx] || '').trim() : 'Importado';
+      const taskName = (row[taskIdx] || '').trim();
+
+      // Skip summary/total rows
+      if (taskName.toLowerCase().includes('total') || taskName.toLowerCase().includes('soma')) continue;
+
+      if (!groupMap.has(groupName)) {
+        groupMap.set(groupName, {
+          id: crypto.randomUUID(),
+          title: groupName,
+          color: groupColors[groupMap.size % groupColors.length],
+          tasks: []
+        });
+      }
+
+      const currentGroup = groupMap.get(groupName)!;
+      const columnValues: Record<string, any> = {};
+
+      // Map values based on identified indices
+      Object.entries(colToIdxMap).forEach(([colId, excelIdx]) => {
+        const cellVal = (row[excelIdx] || '').trim();
+        if (!cellVal || cellVal === '-') {
+           columnValues[colId] = null;
+           return;
+        }
+
+        // Clean value based on column intention (from existing or new)
+        const allCols = [...existingColumns, ...newColumns];
+        const col = allCols.find(c => c.id === colId);
+        
+        if (col?.type === 'number' || col?.type === 'progress') {
+          const cleanVal = parseFloat(cellVal.replace('%', '').replace('R$', '').replace(/\./g, '').replace(',', '.')) || 0;
+          columnValues[colId] = cleanVal;
+        } else {
+          columnValues[colId] = cellVal;
+        }
+      });
+
+      const task: Task = {
+        id: crypto.randomUUID(),
+        name: taskName,
+        columnValues,
+        orderIndex: currentGroup.tasks.length,
+        groupId: currentGroup.id
+      };
+      currentGroup.tasks.push(task);
+    }
+
+    const groups = Array.from(groupMap.values());
+    if (groups.length === 0) {
+      toast.error('Nenhuma tarefa válida detectada.');
+      return;
+    }
+
+    setPasteContent('');
     setTimeout(() => {
-      onImport(groups);
-      toast.success(`Importado! ${groups.length} grupo(s) com ${totalTasks} tarefa(s)`);
+      onImport(groups, newColumns.length > 0 ? newColumns : undefined);
+      toast.success(`Importado com sucesso! Mapeamos ${Object.keys(colToIdxMap).length} colunas.`);
     }, 100);
     
     onClose();

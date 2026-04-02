@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
-import { ViewMode, Task, Board, TaskGroup, BoardColumn } from '@/types/board';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { ViewMode, Task, Board, TaskGroup, BoardColumn, ColumnType } from '@/types/board';
 import { sampleBoard, sampleBoards } from '@/data/sampleData';
 import AppSidebar from '@/components/AppSidebar';
 import BoardHeader from '@/components/BoardHeader';
@@ -12,37 +12,118 @@ import ExecDashboard from '@/components/ExecDashboard';
 import { supabase, fetchBoards } from '@/lib/supabase';
 import { toast } from 'sonner';
 import ImportDialog from '@/components/ImportDialog';
+import TeamView from '@/components/TeamView';
+import ArchivedItemsDialog from '@/components/ArchivedItemsDialog';
 
 export default function Index() {
-  const [boards, setBoards] = useState<Board[]>(sampleBoards);
-  const [activeBoardId, setActiveBoardId] = useState(sampleBoard.id);
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [activeBoardId, setActiveBoardId] = useState<string>('');
+  const [viewMode, setViewMode] = useState<ViewMode | 'team'>('table');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isAutomationOpen, setIsAutomationOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isArchivedOpen, setIsArchivedOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [automations, setAutomations] = useState<Automation[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [boardFilters, setBoardFilters] = useState<Record<string, { searchTerm: string, activeFilters: Record<string, string[]> }>>({});
 
-  const activeBoard = boards.find((b) => b.id === activeBoardId) || boards[0] || sampleBoard;
+  const isSample = (id: string) => boards.some(b => b.id === id && (id === 'ppcp-cronograma' || id === 'desempenho-oficial' || id.startsWith('g-') || id.startsWith('p-') || id.startsWith('t-') || id.startsWith('e-')));
+
+  const activeBoard = useMemo(() => {
+    return boards.find((b) => b.id === activeBoardId) || boards[0] || sampleBoard;
+  }, [boards, activeBoardId]);
+
+  const currentFilter = useMemo(() => {
+    return activeBoardId ? (boardFilters[activeBoardId] || { searchTerm: '', activeFilters: {} }) : { searchTerm: '', activeFilters: {} };
+  }, [activeBoardId, boardFilters]);
+
+  const { searchTerm, activeFilters } = currentFilter;
+
+  const persistBoard = async (boardToPersist: Board) => {
+    try {
+      toast.loading("Salvando modelo como projeto real no banco...", { id: 'persist' });
+      const { data: newBoard, error: bErr } = await supabase.from('boards').insert({ title: boardToPersist.title }).select().single();
+      if (bErr || !newBoard) throw bErr;
+
+      const columnIdMap: Record<string, string> = {};
+
+      for (const col of boardToPersist.columns) {
+        const { data: nC } = await supabase.from('board_columns').insert({
+          board_id: newBoard.id,
+          title: col.title,
+          type: col.type,
+          width: col.width,
+          position: col.position,
+          unit: col.unit,
+          summary_type: col.summaryType,
+          formula_expr: col.formulaExpr
+        }).select().single();
+        if (nC) columnIdMap[col.id] = nC.id;
+      }
+
+      for (const group of boardToPersist.groups) {
+        const { data: nG } = await supabase.from('task_groups').insert({
+          board_id: newBoard.id,
+          title: group.title,
+          color: group.color,
+          position: 0
+        }).select().single();
+        
+        if (nG) {
+          for (const task of group.tasks) {
+            const { data: nT } = await supabase.from('tasks').insert({
+              group_id: nG.id,
+              name: task.name,
+              position: task.orderIndex
+            }).select().single();
+            
+            if (nT && task.columnValues) {
+              const values = Object.entries(task.columnValues)
+                .filter(([oldColId]) => columnIdMap[oldColId])
+                .map(([oldColId, val]) => ({
+                  task_id: nT.id,
+                  column_id: columnIdMap[oldColId],
+                  value: val
+                }));
+              if (values.length > 0) await supabase.from('task_values').upsert(values);
+            }
+          }
+        }
+      }
+
+      toast.dismiss('persist');
+      toast.success("Modelo convertido com sucesso!");
+      return { id: newBoard.id, columnIdMap };
+    } catch (err: any) {
+      toast.error(`Falha ao converter modelo: ${err.message}`);
+      return null;
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
     
     async function loadData() {
-      // Timeout de 4 segundos para evitar travamento se o Supabase estiver offline
-      const timeout = new Promise((_, reject) => setTimeout(() => reject('timeout'), 4000));
-      
+      setLoading(true);
       try {
-        const fetchPromise = fetchBoards();
-        const data = await Promise.race([fetchPromise, timeout]) as Board[];
-        
-        if (mounted && data && data.length > 0) {
-          setBoards(data);
-          setActiveBoardId(data[0].id);
+        const data = await fetchBoards();
+        if (mounted) {
+          if (data && data.length > 0) {
+            setBoards([...data, ...sampleBoards]);
+            if (!activeBoardId || (!data.some(b => b.id === activeBoardId) && !sampleBoards.some(b => b.id === activeBoardId))) {
+              setActiveBoardId(data[0].id);
+            }
+          } else {
+            setBoards(sampleBoards);
+            if (!activeBoardId) setActiveBoardId(sampleBoards[1].id);
+          }
         }
-      } catch (err) {
-        console.warn('Usando dados locais (Supabase offline ou timeout)');
+      } catch (err: any) {
+        console.error('fetchBoards failed:', err);
+        if (mounted) {
+          setBoards(sampleBoards);
+          if (!activeBoardId) setActiveBoardId(sampleBoards[0].id);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -53,6 +134,14 @@ export default function Index() {
   }, []);
 
   const handleTaskUpdate = useCallback(async (updated: Task) => {
+    if (isSample(activeBoardId)) {
+      const result = await persistBoard(activeBoard);
+      if (!result) return;
+      setActiveBoardId(result.id);
+      toast.info("Projeto salvo no banco. Por favor realize a alteração novamente.");
+      return;
+    }
+
     setBoards((prev) =>
       prev.map((board) =>
         board.id === activeBoardId
@@ -66,22 +155,41 @@ export default function Index() {
           : board
       )
     );
-    setSelectedTask(updated);
+    
+    setSelectedTask(prev => prev && prev.id === updated.id ? updated : prev);
 
     try {
-      const promises = Object.entries(updated.columnValues).map(([colId, val]) => 
-        supabase.from('task_values').upsert({ task_id: updated.id, column_id: colId, value: val })
-      );
+      const promises = Object.entries(updated.columnValues).map(async ([colId, val]) => {
+        await supabase.from('task_values').upsert({ task_id: updated.id, column_id: colId, value: val });
+      });
+      promises.push((async () => {
+        await supabase.from('tasks').update({ name: updated.name }).eq('id', updated.id);
+      })());
       await Promise.all(promises);
-    } catch (err) {
-      console.error('Failed to sync task update:', err);
+    } catch (err: any) {
+      console.error('Task sync error:', err);
     }
-  }, [activeBoardId]);
+  }, [activeBoardId, activeBoard]);
 
   const handleRenameBoard = useCallback(async (boardId: string, newTitle: string) => {
+    const targetBoard = boards.find(b => b.id === boardId);
+    if (!targetBoard) return;
+
+    if (isSample(boardId)) {
+      // Se for amostra, criamos uma versão real com o novo título
+      const result = await persistBoard({ ...targetBoard, title: newTitle });
+      if (result) {
+        setActiveBoardId(result.id);
+        const data = await fetchBoards();
+        setBoards([...data, ...sampleBoards]);
+      }
+      return;
+    }
+
     setBoards(prev => prev.map(b => b.id === boardId ? { ...b, title: newTitle } : b));
     await supabase.from('boards').update({ title: newTitle }).eq('id', boardId);
-  }, []);
+    toast.success("Nome do projeto atualizado!");
+  }, [boards, sampleBoards]);
 
   const handleDeleteBoard = useCallback(async (boardId: string) => {
     if (boards.length <= 1) return;
@@ -115,25 +223,27 @@ export default function Index() {
   }, [activeBoardId, activeBoard.groups.length]);
 
   const handleAddTask = useCallback(async (groupId?: string) => {
+    let targetBoardId = activeBoardId;
+    if (isSample(targetBoardId)) {
+      const result = await persistBoard(activeBoard);
+      if (!result) return;
+      targetBoardId = result.id;
+      setActiveBoardId(targetBoardId);
+    }
+
     const targetGroupId = groupId || activeBoard.groups[0]?.id;
     if (!targetGroupId) return;
     
-    const initialColumnValues: Record<string, any> = {};
-    activeBoard.columns.forEach(col => {
-       if (col.type === 'status') initialColumnValues[col.id] = 'default';
-       else if (col.type === 'priority') initialColumnValues[col.id] = 'medium';
-    });
-
     const newTask: Task = {
       id: crypto.randomUUID(),
       name: 'Nova Tarefa',
-      columnValues: initialColumnValues,
+      columnValues: {},
       orderIndex: activeBoard.groups.find(g => g.id === targetGroupId)?.tasks.length || 0,
       groupId: targetGroupId
     };
 
     setBoards(prev => prev.map(board => 
-      board.id === activeBoardId 
+      board.id === targetBoardId || board.id === activeBoardId
         ? { ...board, groups: board.groups.map(g => g.id === targetGroupId ? { ...g, tasks: [...g.tasks, newTask] } : g) } 
         : board
     ));
@@ -142,15 +252,23 @@ export default function Index() {
   }, [activeBoard, activeBoardId]);
 
   const handleAddGroup = useCallback(async () => {
+    let targetBoardId = activeBoardId;
+    if (isSample(targetBoardId)) {
+      const result = await persistBoard(activeBoard);
+      if (!result) return;
+      targetBoardId = result.id;
+      setActiveBoardId(targetBoardId);
+    }
+
     const newGroup: TaskGroup = {
       id: crypto.randomUUID(),
       title: 'Novo Grupo',
       color: 'blue',
       tasks: []
     };
-    setBoards(prev => prev.map(board => board.id === activeBoardId ? { ...board, groups: [newGroup, ...board.groups] } : board));
-    await supabase.from('task_groups').insert({ id: newGroup.id, board_id: activeBoardId, title: newGroup.title, color: 'blue' });
-  }, [activeBoardId]);
+    setBoards(prev => prev.map(board => board.id === targetBoardId || board.id === activeBoardId ? { ...board, groups: [newGroup, ...board.groups] } : board));
+    await supabase.from('task_groups').insert({ id: newGroup.id, board_id: targetBoardId, title: newGroup.title, color: 'blue' });
+  }, [activeBoardId, activeBoard]);
 
   const handleAddColumn = useCallback(async (type: any, title: string) => {
     const newCol: BoardColumn = { id: crypto.randomUUID(), type, title, width: 160, position: activeBoard.columns.length };
@@ -172,76 +290,265 @@ export default function Index() {
     await supabase.from('board_columns').delete().eq('id', columnId);
   }, [activeBoardId]);
 
-  const handleImport = useCallback((groups: TaskGroup[], newColumns?: BoardColumn[]) => {
-    // 1. Close dialog immediately to prevent freeze
+  const handleImport = useCallback(async (groups: TaskGroup[], newColumns?: BoardColumn[]) => {
     setIsImportOpen(false);
+    let targetBoardId = activeBoardId;
+    let colMapping: Record<string, string> = {};
 
-    // 2. Update local state
-    const columnsToUse = newColumns && activeBoard.columns.length === 0 ? newColumns : undefined;
+    if (isSample(targetBoardId)) {
+      const result = await persistBoard(activeBoard);
+      if (!result) return;
+      targetBoardId = result.id;
+      colMapping = result.columnIdMap;
+      setActiveBoardId(targetBoardId);
+    }
+
+    const filteredGroups = groups.filter(newG => {
+      const existingG = activeBoard.groups.find(g => g.title.toLowerCase() === newG.title.toLowerCase());
+      if (!existingG) return true;
+      
+      const allTasksMatch = newG.tasks.every(nT => 
+        existingG.tasks.some(eT => eT.name === nT.name)
+      );
+      
+      return !allTasksMatch;
+    });
+
+    if (filteredGroups.length === 0) {
+      toast.info("Nenhuma informação nova detectada. Duplicatas ignoradas.");
+      return;
+    }
+
+    const allNewCols = newColumns || [];
     
     setBoards(prev => prev.map(board => {
-      if (board.id !== activeBoardId) return board;
+      if (board.id !== targetBoardId && board.id !== activeBoardId) return board;
       return {
         ...board,
-        columns: columnsToUse ? columnsToUse : board.columns,
-        groups: [...board.groups, ...groups]
+        columns: [...board.columns, ...allNewCols],
+        groups: [...board.groups, ...filteredGroups]
       };
     }));
 
-    // 3. Save to database in background (non-blocking)
     (async () => {
       try {
-        // Save new columns if any
-        if (columnsToUse) {
-          for (const col of columnsToUse) {
-            await supabase.from('board_columns').insert({
-              id: col.id, board_id: activeBoardId, title: col.title,
-              type: col.type, width: col.width, position: col.position,
-              unit: col.unit || null, summary_type: col.summaryType || 'none'
-            });
-          }
+        for (const col of allNewCols) {
+          const { data } = await supabase.from('board_columns').insert({
+            id: col.id, board_id: targetBoardId, title: col.title,
+            type: col.type, width: col.width, position: col.position,
+            unit: col.unit || null, summary_type: col.summaryType || 'none'
+          }).select().single();
+          if (data) colMapping[col.id] = data.id;
         }
 
-        // Save groups, tasks, and task_values
-        for (const group of groups) {
-          await supabase.from('task_groups').insert({
-            id: group.id, board_id: activeBoardId,
+        for (const group of filteredGroups) {
+          const { data: nG } = await supabase.from('task_groups').insert({
+            id: group.id, board_id: targetBoardId,
             title: group.title, color: group.color, position: 0
-          });
+          }).select().single();
+
+          if (!nG) continue;
 
           for (const task of group.tasks) {
-            await supabase.from('tasks').insert({
-              id: task.id, group_id: group.id,
+            const { data: nT } = await supabase.from('tasks').insert({
+              id: task.id, group_id: nG.id,
               name: task.name, position: task.orderIndex
-            });
+            }).select().single();
 
-            // Save each column value
-            const entries = Object.entries(task.columnValues);
-            if (entries.length > 0) {
-              const values = entries.map(([colId, val]) => ({
-                task_id: task.id, column_id: colId,
-                value: typeof val === 'object' ? val : val
+            if (!nT) continue;
+
+            const values = Object.entries(task.columnValues)
+              .filter(([_, val]) => val !== null && val !== undefined)
+              .map(([oldColId, val]) => ({
+                task_id: nT.id,
+                column_id: colMapping[oldColId] || oldColId,
+                value: val
               }));
+
+            if (values.length > 0) {
               await supabase.from('task_values').upsert(values);
             }
           }
         }
-        console.log('Import synced to database successfully');
+        await fetchBoards().then(data => setBoards([...data, ...sampleBoards]));
       } catch (err) {
-        console.error('Import database sync failed:', err);
+        console.error('Import sync error:', err);
       }
     })();
-  }, [activeBoardId, activeBoard.columns.length]);
+  }, [activeBoardId, activeBoard]);
+
+  const handleDuplicateBoard = useCallback(async (boardId: string) => {
+    const boardToDup = boards.find(b => b.id === boardId);
+    if (!boardToDup) return;
+    const result = await persistBoard({ ...boardToDup, title: boardToDup.title + ' (Cópia)' });
+    if (result) {
+      toast.success("Projeto duplicado com sucesso!");
+      const data = await fetchBoards();
+      setBoards([...data, ...sampleBoards]);
+    }
+  }, [boards]);
+
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    if (!confirm('Excluir tarefa?')) return;
+    setBoards(prev => prev.map(board => 
+      board.id === activeBoardId 
+        ? { ...board, groups: board.groups.map(g => ({ ...g, tasks: g.tasks.filter(t => t.id !== taskId) })) } 
+        : board
+    ));
+    await supabase.from('tasks').delete().eq('id', taskId);
+  }, [activeBoardId]);
+
+  const handleDuplicateTask = useCallback(async (taskId: string) => {
+    let duplicatedTask: Task | null = null;
+    let targetGroupId = '';
+    let originalTask: Task | null = null;
+    
+    boards.forEach(board => {
+      board.groups.forEach(group => {
+        const taskIndex = group.tasks.findIndex(t => t.id === taskId);
+        if (taskIndex !== -1) {
+          originalTask = group.tasks[taskIndex];
+          targetGroupId = group.id;
+          duplicatedTask = {
+            ...originalTask,
+            id: crypto.randomUUID(),
+            name: `${originalTask.name} (Cópia)`,
+            orderIndex: originalTask.orderIndex + 1
+          };
+        }
+      });
+    });
+
+    if (!duplicatedTask || !originalTask) return;
+
+    setBoards(prev => prev.map(board => 
+      board.id === activeBoardId 
+        ? { 
+            ...board, 
+            groups: board.groups.map(g => {
+              if (g.id !== targetGroupId) return g;
+              const taskIndex = g.tasks.findIndex(t => t.id === taskId);
+              const newTasks = [...g.tasks];
+              newTasks.splice(taskIndex + 1, 0, duplicatedTask!);
+              return { ...g, tasks: newTasks.map((t, i) => ({ ...t, orderIndex: i })) };
+            }) 
+          } 
+        : board
+    ));
+
+    const { error: taskError } = await supabase.from('tasks').insert({
+      id: duplicatedTask.id, group_id: targetGroupId,
+      name: duplicatedTask.name, position: duplicatedTask.orderIndex
+    });
+    
+    if (!taskError) {
+      const values = Object.entries(originalTask.columnValues).map(([colId, val]) => ({
+        task_id: duplicatedTask!.id, column_id: colId, value: val
+      }));
+      if (values.length > 0) await supabase.from('task_values').insert(values);
+    }
+  }, [boards, activeBoardId]);
+
+  const handleArchiveTask = useCallback(async (taskIds: string[]) => {
+     if (taskIds.length === 0) return;
+     setBoards(prev => prev.map(board => ({
+       ...board,
+       groups: board.groups.map(g => ({
+         ...g,
+         tasks: g.tasks.map(t => taskIds.includes(t.id) ? { ...t, archived: true } : t)
+       }))
+     })));
+     await supabase.from('tasks').update({ is_archived: true }).in('id', taskIds);
+     toast.info(`${taskIds.length} tarefas arquivadas`);
+  }, []);
+
+  const handleUnarchiveTask = useCallback(async (taskId: string) => {
+    setBoards(prev => prev.map(board => ({
+      ...board,
+      groups: board.groups.map(g => ({
+        ...g,
+        tasks: g.tasks.map(t => t.id === taskId ? { ...t, archived: false } : t)
+      }))
+    })));
+    await supabase.from('tasks').update({ is_archived: false }).eq('id', taskId);
+    toast.success('Tarefa restaurada');
+  }, []);
+
+  const handleArchiveGroup = useCallback(async (groupId: string) => {
+    setBoards(prev => prev.map(board => 
+      board.id === activeBoardId 
+        ? { ...board, groups: board.groups.map(g => g.id === groupId ? { ...g, archived: true } : g) } 
+        : board
+    ));
+    await supabase.from('task_groups').update({ is_archived: true }).eq('id', groupId);
+    toast.success('Grupo arquivado');
+  }, [activeBoardId]);
+
+  const handleUnarchiveGroup = useCallback(async (groupId: string) => {
+    setBoards(prev => prev.map(board => 
+      board.id === activeBoardId 
+        ? { ...board, groups: board.groups.map(g => g.id === groupId ? { ...g, archived: false } : g) } 
+        : board
+    ));
+    await supabase.from('task_groups').update({ is_archived: false }).eq('id', groupId);
+    toast.success('Grupo restaurado');
+  }, [activeBoardId]);
 
   const handleAddBoard = useCallback(async () => {
     const title = 'Novo Quadro';
-    const { data: newBoardData } = await supabase.from('boards').insert({ title }).select().single();
-    if (newBoardData) {
-      const newBoard: Board = { id: newBoardData.id, title: newBoardData.title, workspaceId: 'w1', columns: [], groups: [] };
+    const { data: bData } = await supabase.from('boards').insert({ title }).select().single();
+    
+    if (bData) {
+      const defaultCols = [
+        { title: 'Status', type: 'status', width: 140, position: 0 },
+        { title: 'Prioridade', type: 'priority', width: 100, position: 1 },
+        { title: 'Responsável', type: 'person', width: 150, position: 2 },
+        { title: 'Cronograma', type: 'timeline', width: 200, position: 3 },
+        { title: 'Orçamento', type: 'number', width: 120, unit: 'R$', summary_type: 'sum', position: 4 }
+      ];
+
+      const createdCols: BoardColumn[] = [];
+      for (const col of defaultCols) {
+        const { data: cData } = await supabase.from('board_columns').insert({ board_id: bData.id, ...col }).select().single();
+        if (cData) createdCols.push({ ...col, id: cData.id, type: cData.type as any, summaryType: cData.summary_type as any });
+      }
+
+      const { data: nG } = await supabase.from('task_groups').insert({ board_id: bData.id, title: 'Novo Grupo', color: 'blue' }).select().single();
+
+      const newBoard: Board = { 
+        id: bData.id, title: bData.title, workspaceId: 'default', 
+        columns: createdCols, groups: nG ? [{ id: nG.id, title: nG.title, color: nG.color, tasks: [] }] : [] 
+      };
+
       setBoards(prev => [newBoard, ...prev]);
       setActiveBoardId(newBoard.id);
+      toast.success("Novo projeto criado.");
     }
   }, []);
+
+  const onSearchChange = useCallback((value: string) => {
+    setBoardFilters(prev => ({ ...prev, [activeBoardId]: { ...(prev[activeBoardId] || { searchTerm: '', activeFilters: {} }), searchTerm: value } }));
+  }, [activeBoardId]);
+
+  const onFilterChange = useCallback((filters: Record<string, string[]>) => {
+    setBoardFilters(prev => ({ ...prev, [activeBoardId]: { ...(prev[activeBoardId] || { searchTerm: '', activeFilters: {} }), activeFilters: filters } }));
+  }, [activeBoardId]);
+
+  const filteredBoard = useMemo(() => {
+    if (!activeBoard) return activeBoard;
+    return {
+      ...activeBoard,
+      groups: activeBoard.groups.filter(g => !g.archived).map(group => ({
+        ...group,
+        tasks: group.tasks.filter(task => {
+          if (task.archived) return false;
+          const matchesSearch = !searchTerm || task.name.toLowerCase().includes(searchTerm.toLowerCase());
+          if (!matchesSearch) return false;
+          return true;
+        })
+      })).filter(group => group.tasks.length > 0 || Object.keys(activeFilters).length === 0)
+    };
+  }, [activeBoard, searchTerm, activeFilters]);
 
   if (loading) {
     return (
@@ -259,64 +566,54 @@ export default function Index() {
       <AppSidebar
         boards={boards}
         activeBoardId={activeBoardId}
-        onSelectBoard={setActiveBoardId}
+        onSelectBoard={(id) => { setActiveBoardId(id); setViewMode('table'); }}
         onAddBoard={handleAddBoard}
         onRenameBoard={handleRenameBoard}
         onDeleteBoard={handleDeleteBoard}
+        onDuplicateBoard={handleDuplicateBoard}
+        onSelectTeam={() => setViewMode('team')}
       />
 
       <main className="flex-1 overflow-y-auto">
-        <BoardHeader
-          title={activeBoard?.title || 'Sem título'}
-          viewMode={viewMode}
-          onViewChange={setViewMode}
-          onAddTask={handleAddTask}
-          onAddGroup={handleAddGroup}
-          onAutomationsClick={() => setIsAutomationOpen(true)}
-          automationsCount={automations.length}
-          searchTerm={searchTerm}
-          onSearchChange={setSearchTerm}
-          onImportClick={() => setIsImportOpen(true)}
-        />
+        {viewMode === 'team' ? <TeamView /> : (
+          <>
+            <BoardHeader
+              title={activeBoard?.title || 'Sem título'}
+              board={activeBoard}
+              viewMode={viewMode}
+              onViewChange={setViewMode}
+              onAddTask={handleAddTask}
+              onAddGroup={handleAddGroup}
+              onAutomationsClick={() => setIsAutomationOpen(true)}
+              automationsCount={automations.length}
+              searchTerm={searchTerm}
+              onSearchChange={onSearchChange}
+              activeFilters={activeFilters}
+              onFilterChange={onFilterChange}
+              onImportClick={() => setIsImportOpen(true)}
+              onShowArchived={() => setIsArchivedOpen(true)}
+            />
 
-        {viewMode === 'table' && activeBoard && (
-          <TableView 
-            board={activeBoard} 
-            onTaskClick={setSelectedTask}
-            onAddTask={handleAddTask}
-            onAddGroup={handleAddGroup}
-            onRenameGroup={handleRenameGroup}
-            onDeleteGroup={handleDeleteGroup}
-            onAddColumn={handleAddColumn}
-            onUpdateColumn={handleUpdateColumn}
-            onRemoveColumn={handleRemoveColumn}
-            searchTerm={searchTerm}
-          />
+            {viewMode === 'table' && filteredBoard && (
+              <TableView 
+                board={filteredBoard} onTaskClick={setSelectedTask} onAddTask={handleAddTask} onAddGroup={handleAddGroup}
+                onRenameGroup={handleRenameGroup} onDeleteGroup={handleDeleteGroup} onArchiveGroup={handleArchiveGroup}
+                onAddColumn={handleAddColumn} onUpdateColumn={handleUpdateColumn} onRemoveColumn={handleRemoveColumn}
+                onDeleteTask={handleDeleteTask} onDuplicateTask={handleDuplicateTask} onArchiveTask={handleArchiveTask}
+                onUpdateTask={handleTaskUpdate} searchTerm={searchTerm}
+              />
+            )}
+
+            {viewMode === 'gantt' && filteredBoard && <GanttView board={filteredBoard} />}
+            {viewMode === 'dashboard' && filteredBoard && <ExecDashboard board={filteredBoard} />}
+          </>
         )}
-
-        {viewMode === 'gantt' && activeBoard && <GanttView board={activeBoard} />}
-        {viewMode === 'dashboard' && activeBoard && <ExecDashboard board={activeBoard} />}
       </main>
 
-      <AutomationCenter
-        open={isAutomationOpen}
-        onClose={() => setIsAutomationOpen(false)}
-        automations={automations}
-        onToggle={(id) => setAutomations(prev => prev.map(a => a.id === id ? { ...a, isActive: !a.isActive } : a))}
-        onDelete={(id) => setAutomations(prev => prev.filter(a => a.id !== id))}
-      />
-
+      <AutomationCenter open={isAutomationOpen} onClose={() => setIsAutomationOpen(false)} automations={automations} onToggle={(id) => setAutomations(prev => prev.map(a => a.id === id ? { ...a, isActive: !a.isActive } : a))} onDelete={(id) => setAutomations(prev => prev.filter(a => a.id !== id))} />
       <ImportDialog open={isImportOpen} onClose={() => setIsImportOpen(false)} onImport={handleImport} existingColumns={activeBoard?.columns || []} />
-
-      {selectedTask && (
-        <TaskDialog
-          task={selectedTask}
-          columns={activeBoard?.columns || []}
-          open={!!selectedTask}
-          onClose={() => setSelectedTask(null)}
-          onUpdate={handleTaskUpdate}
-        />
-      )}
+      <ArchivedItemsDialog open={isArchivedOpen} onClose={() => setIsArchivedOpen(false)} board={activeBoard} onUnarchiveGroup={handleUnarchiveGroup} onDeleteGroup={handleDeleteGroup} onUnarchiveTask={handleUnarchiveTask} onDeleteTask={handleDeleteTask} />
+      {selectedTask && <TaskDialog task={selectedTask} columns={activeBoard?.columns || []} open={!!selectedTask} onClose={() => setSelectedTask(null)} onUpdate={handleTaskUpdate} onDelete={handleDeleteTask} />}
     </div>
   );
 }
