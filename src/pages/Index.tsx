@@ -8,6 +8,7 @@ import AutomationCenter from '@/components/AutomationCenter';
 import { Automation } from '@/types/automation';
 import TaskDialog from '@/components/TaskDialog';
 import GanttView from '@/components/GanttView';
+import ExecDashboard from '@/components/ExecDashboard';
 import { supabase, fetchBoards } from '@/lib/supabase';
 import { toast } from 'sonner';
 import ImportDialog from '@/components/ImportDialog';
@@ -294,6 +295,7 @@ export default function Index() {
         )}
 
         {viewMode === 'gantt' && activeBoard && <GanttView board={activeBoard} />}
+        {viewMode === 'dashboard' && activeBoard && <ExecDashboard board={activeBoard} />}
       </main>
 
       <AutomationCenter
