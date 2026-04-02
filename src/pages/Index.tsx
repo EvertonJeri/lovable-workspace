@@ -277,12 +277,22 @@ export default function Index() {
   }, [activeBoardId, activeBoard.columns.length]);
 
   const handleUpdateColumn = useCallback(async (columnId: string, updates: Partial<BoardColumn>) => {
+    const supabaseUpdates: any = { ...updates };
+    if (updates.summaryType) {
+      supabaseUpdates.summary_type = updates.summaryType;
+      delete supabaseUpdates.summaryType;
+    }
+    if (updates.formulaExpr) {
+      supabaseUpdates.formula_expr = updates.formulaExpr;
+      delete supabaseUpdates.formulaExpr;
+    }
+
     setBoards(prev => prev.map(board => 
       board.id === activeBoardId 
         ? { ...board, columns: board.columns.map(col => col.id === columnId ? { ...col, ...updates } : col) } 
         : board
     ));
-    await supabase.from('board_columns').update(updates).eq('id', columnId);
+    await supabase.from('board_columns').update(supabaseUpdates).eq('id', columnId);
   }, [activeBoardId]);
 
   const handleRemoveColumn = useCallback(async (columnId: string) => {

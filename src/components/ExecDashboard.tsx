@@ -259,8 +259,8 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Gráfico de Valor Produzido */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm lg:col-span-2 flex flex-col">
-          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Valor Produzido</h3>
-          <div className="flex-1 min-h-[300px]">
+          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Valor Produzido por Semana</h3>
+          <div className="flex-1 min-h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={filteredChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
@@ -283,8 +283,8 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
 
         {/* Resumo de Projetos */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
-          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Projetos</h3>
-          <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Status dos Projetos</h3>
+          <div className="overflow-y-auto pr-2 space-y-3" style={{ height: '280px' }}>
              {groupSummaries.map(proj => (
                <div key={proj.id} className="border border-slate-100 rounded-md p-3 hover:bg-slate-50 transition-colors">
                   <div className="flex justify-between items-center mb-2">
@@ -310,20 +310,33 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
         {/* Gráfico Ranking de Setores */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
            <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Ranking de Setores (Conclusão %)</h3>
-           <div className="h-[300px]">
-             <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={setorRanking.slice(0, 8)} layout="vertical" margin={{ top: 20, right: 30, left: 40, bottom: 5 }}>
-                 <XAxis type="number" domain={[0, 100]} hide />
-                 <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 12, fontWeight: 500}} width={100} />
-                 <Tooltip formatter={(val: number) => `${val.toFixed(1)}%`} cursor={{fill: '#f1f5f9'}} />
-                 <Bar dataKey="avgPercent" radius={[0, 4, 4, 0]} barSize={20}>
-                    {setorRanking.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={SET2[index % SET2.length]} />
-                    ))}
-                    <LabelList dataKey="avgPercent" position="right" formatter={(v: number) => `${v.toFixed(0)}%`} fill="#475569" fontSize={11} />
-                 </Bar>
-               </BarChart>
-             </ResponsiveContainer>
+           <div className="overflow-y-auto pr-2" style={{ height: '350px' }}>
+              <div style={{ height: `${Math.max(300, setorRanking.length * 45)}px` }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={setorRanking} layout="vertical" margin={{ top: 10, right: 40, left: 20, bottom: 5 }}>
+                    <XAxis type="number" domain={[0, 100]} hide />
+                    <YAxis 
+                      dataKey="name" 
+                      type="category" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fill: '#475569', fontSize: 11, fontWeight: 500}} 
+                      width={100} 
+                    />
+                    <Tooltip 
+                      formatter={(val: number) => `${val.toFixed(1)}%`} 
+                      cursor={{fill: '#f1f5f9'}}
+                      contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
+                    />
+                    <Bar dataKey="avgPercent" radius={[0, 4, 4, 0]} barSize={28}>
+                       {setorRanking.map((entry, index) => (
+                         <Cell key={`cell-${index}`} fill={SET2[index % SET2.length]} />
+                       ))}
+                       <LabelList dataKey="avgPercent" position="right" formatter={(v: number) => `${v.toFixed(0)}%`} fill="#475569" fontSize={10} fontWeight="bold" />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
            </div>
         </div>
 
