@@ -1,23 +1,52 @@
+export type ColumnType = 
+  | 'status' 
+  | 'text' 
+  | 'number' 
+  | 'person' 
+  | 'date' 
+  | 'timeline' 
+  | 'checkbox' 
+  | 'tags' 
+  | 'link' 
+  | 'files' 
+  | 'formula' 
+  | 'progress' 
+  | 'priority'
+  | 'time';
+
+export type ViewMode = 'table' | 'kanban' | 'timeline' | 'calendar' | 'dashboard' | 'gantt';
+
 export type TaskStatus = 'done' | 'working' | 'stuck' | 'default';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
-export type ViewMode = 'table' | 'kanban' | 'gantt';
-export type GroupColor = 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'teal';
+export type GroupColor = 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'teal' | 'indigo' | 'pink' | 'grey';
 
 export interface Person {
   id: string;
   name: string;
   avatar?: string;
+  email?: string;
+  sector?: string;
+}
+
+export interface BoardColumn {
+  id: string;
+  type: ColumnType;
+  title: string;
+  settings?: Record<string, any>;
+  width?: number;
+  summaryType?: 'sum' | 'avg' | 'min' | 'max' | 'count' | 'none';
+  formulaExpr?: string;
+  unit?: string;
+  position: number;
 }
 
 export interface Task {
   id: string;
-  title: string;
-  status: TaskStatus;
-  priority: TaskPriority;
-  assignee?: Person;
-  startDate?: string;
-  endDate?: string;
+  name: string;
   groupId: string;
+  columnValues: Record<string, any>;
+  orderIndex: number;
+  subitems?: Task[];
 }
 
 export interface TaskGroup {
@@ -31,7 +60,10 @@ export interface TaskGroup {
 export interface Board {
   id: string;
   title: string;
+  workspaceId: string;
+  columns: BoardColumn[];
   groups: TaskGroup[];
+  type?: 'public' | 'private' | 'shareable';
 }
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {

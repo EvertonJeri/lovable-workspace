@@ -1,84 +1,125 @@
 import { useState } from 'react';
-import { LayoutDashboard, Plus, ChevronDown, Search, Home, Settings, Users } from 'lucide-react';
+import { LayoutDashboard, Plus, ChevronDown, Search, Home, Settings, Users, Bell, Bookmark, Mail, Grid, Inbox, Star, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { Board } from '@/types/board';
 import { cn } from '@/lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 interface AppSidebarProps {
   boards: Board[];
   activeBoardId: string;
   onSelectBoard: (id: string) => void;
+  onAddBoard: () => void;
+  onRenameBoard: (id: string, title: string) => void;
+  onDeleteBoard: (id: string) => void;
 }
 
-export default function AppSidebar({ boards, activeBoardId, onSelectBoard }: AppSidebarProps) {
-  const [workspaceOpen, setWorkspaceOpen] = useState(true);
+export default function AppSidebar({ 
+  boards, 
+  activeBoardId, 
+  onSelectBoard, 
+  onAddBoard,
+  onRenameBoard,
+  onDeleteBoard
+}: AppSidebarProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const filteredBoards = boards.filter(b => b.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
-    <aside className="w-[260px] h-screen bg-sidebar flex flex-col border-r border-sidebar-border shrink-0">
-      {/* Logo area */}
-      <div className="p-4 flex items-center gap-2">
-        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-          <span className="text-primary-foreground font-bold text-sm">W</span>
-        </div>
-        <span className="text-sidebar-accent-foreground font-semibold text-lg">WorkFlow</span>
-      </div>
-
-      {/* Search */}
-      <div className="px-3 mb-2">
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-sidebar-muted text-sidebar-foreground">
-          <Search className="w-4 h-4 opacity-50" />
-          <span className="text-sm opacity-50">Buscar</span>
-        </div>
-      </div>
-
-      {/* Nav */}
-      <nav className="px-3 space-y-0.5 mb-4">
-        <SidebarItem icon={Home} label="Início" />
-        <SidebarItem icon={Users} label="Minha equipe" />
-        <SidebarItem icon={Settings} label="Configurações" />
-      </nav>
-
-      {/* Workspace */}
-      <div className="px-3 flex-1 overflow-y-auto">
-        <button
-          onClick={() => setWorkspaceOpen(!workspaceOpen)}
-          className="flex items-center justify-between w-full px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
-        >
-          <span>Workspace</span>
-          <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", !workspaceOpen && "-rotate-90")} />
-        </button>
-
-        {workspaceOpen && (
-          <div className="mt-1 space-y-0.5">
-            {boards.map((board) => (
-              <button
-                key={board.id}
-                onClick={() => onSelectBoard(board.id)}
-                className={cn(
-                  "flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm transition-colors",
-                  activeBoardId === board.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-                )}
-              >
-                <LayoutDashboard className="w-4 h-4" />
-                <span className="truncate">{board.title}</span>
-              </button>
-            ))}
-            <button className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors">
-              <Plus className="w-4 h-4" />
-              <span>Novo quadro</span>
+    <div className="flex h-screen shrink-0 group/sidebar">
+      {/* Workspace Sidebar */}
+      <aside className="w-[240px] bg-white flex flex-col border-r border-[#e6e9ef] transition-all">
+        <div className="p-4 border-b border-[#e6e9ef]">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-[#333333] text-sm">Workspace Principal</h2>
+            <button 
+              onClick={onAddBoard}
+              className="p-1 hover:bg-slate-100 rounded group/add transition-all"
+              title="Novo Quadro"
+            >
+              <Plus className="w-4 h-4 text-muted-foreground group-hover/add:text-blue-500" />
             </button>
           </div>
-        )}
-      </div>
-    </aside>
+          
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input 
+              type="text" 
+              placeholder="Buscar quadros..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 h-8 bg-[#f5f6f8] border-none rounded text-xs focus:ring-1 focus:ring-blue-500/20"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-2 py-4 space-y-1 no-scrollbar">
+          <WorkspaceItem icon={Home} label="Início" />
+          <WorkspaceItem icon={Users} label="Equipe" />
+          
+          <div className="mt-8 mb-2 px-2 text-[10px] font-bold text-[#676879] uppercase tracking-widest flex items-center justify-between">
+            <span>Meus Quadros</span>
+            <button className="hover:bg-slate-100 p-0.5 rounded transition-colors">
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          </div>
+
+          {filteredBoards.map((board) => (
+            <div key={board.id} className="relative group/item flex items-center">
+              <button
+                onClick={() => onSelectBoard(board.id)}
+                className={cn(
+                  "flex items-center gap-2 w-full px-2 py-2 rounded text-[13px] transition-all flex-1 text-left",
+                  activeBoardId === board.id
+                    ? "bg-[#e5f4ff] text-blue-600 font-medium"
+                    : "text-[#333333] hover:bg-[#f5f6f8]"
+                )}
+              >
+                <div className={cn(
+                  "w-4 h-4 rounded-sm flex items-center justify-center text-[10px] text-white font-bold",
+                  activeBoardId === board.id ? "bg-blue-500" : "bg-slate-300 group-hover/item:bg-slate-400"
+                )}>
+                  {board.title[0].toUpperCase()}
+                </div>
+                <span className="truncate flex-1">{board.title}</span>
+              </button>
+              
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="absolute right-1 p-1 hover:bg-white/50 rounded opacity-0 group-hover/item:opacity-100 transition-opacity">
+                    <MoreHorizontal className="w-3.5 h-3.5 text-[#676879]" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="right" align="start" className="w-48 p-1 bg-white border border-slate-100 shadow-xl rounded-md">
+                   <DropdownMenuItem className="flex items-center gap-2 p-2 text-xs hover:bg-slate-50 cursor-pointer rounded" onClick={() => {
+                     const newTitle = prompt('Novo nome do quadro:', board.title);
+                     if (newTitle) onRenameBoard(board.id, newTitle);
+                   }}>
+                      <Pencil className="w-3.5 h-3.5" /> Renomear
+                   </DropdownMenuItem>
+                   <DropdownMenuItem className="flex items-center gap-2 p-2 text-xs text-red-600 hover:bg-red-50 cursor-pointer rounded" onClick={() => onDeleteBoard(board.id)}>
+                      <Trash2 className="w-3.5 h-3.5" /> Excluir
+                   </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ))}
+        </div>
+      </aside>
+    </div>
   );
 }
 
-function SidebarItem({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
+function WorkspaceItem({ icon: Icon, label }: { icon: any; label: string }) {
   return (
-    <button className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors">
-      <Icon className="w-4 h-4" />
+    <button className="flex items-center gap-2 w-full px-2 py-2 rounded text-[13px] text-[#333333] hover:bg-[#f5f6f8] transition-colors group">
+      <Icon className="w-4 h-4 text-[#676879] group-hover:text-blue-500" />
       <span>{label}</span>
     </button>
   );
