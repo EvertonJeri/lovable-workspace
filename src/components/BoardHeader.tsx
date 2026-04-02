@@ -44,6 +44,10 @@ interface BoardHeaderProps {
   onAddGroup: () => void;
   onImportClick: () => void;
   onShowArchived: () => void;
+  collapsedCount: number;
+  totalGroups: number;
+  onCollapseAll: () => void;
+  onExpandAll: () => void;
 }
 
 
@@ -68,7 +72,11 @@ export default function BoardHeader({
   onFilterChange,
   onAddGroup,
   onImportClick,
-  onShowArchived
+  onShowArchived,
+  collapsedCount,
+  totalGroups,
+  onCollapseAll,
+  onExpandAll
 }: BoardHeaderProps) {
   const handleNotImplemented = (feature: string) => {
     alert(`${feature} em desenvolvimento!`);
@@ -369,6 +377,19 @@ export default function BoardHeader({
                </div>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <div className="h-4 w-px bg-slate-200 mx-1" />
+          
+          <button 
+            onClick={collapsedCount >= totalGroups ? onExpandAll : onCollapseAll}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-slate-500 hover:bg-slate-100 hover:text-blue-600 transition-all font-bold"
+          >
+            {collapsedCount >= totalGroups ? (
+              <><Plus className="w-4 h-4 text-blue-500" /> <span>Expandir tudo</span></>
+            ) : (
+              <><ChevronDown className="w-4 h-4" /> <span>Recolher tudo</span></>
+            )}
+          </button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

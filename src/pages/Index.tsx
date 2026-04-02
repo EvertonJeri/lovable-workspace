@@ -24,6 +24,7 @@ export default function Index() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isArchivedOpen, setIsArchivedOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [boardFilters, setBoardFilters] = useState<Record<string, { searchTerm: string, activeFilters: Record<string, string[]> }>>({});
 
@@ -544,6 +545,23 @@ export default function Index() {
     setBoardFilters(prev => ({ ...prev, [activeBoardId]: { ...(prev[activeBoardId] || { searchTerm: '', activeFilters: {} }), activeFilters: filters } }));
   }, [activeBoardId]);
 
+  const handleCollapseAll = useCallback(() => {
+    if (!activeBoard) return;
+    setCollapsedGroups(new Set(activeBoard.groups.map(g => g.id)));
+  }, [activeBoard]);
+
+  const handleExpandAll = useCallback(() => {
+    setCollapsedGroups(new Set());
+  }, []);
+
+  const toggleGroup = useCallback((id: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
   const filteredBoard = useMemo(() => {
     if (!activeBoard) return activeBoard;
     return {
@@ -602,6 +620,10 @@ export default function Index() {
               onFilterChange={onFilterChange}
               onImportClick={() => setIsImportOpen(true)}
               onShowArchived={() => setIsArchivedOpen(true)}
+              collapsedCount={collapsedGroups.size}
+              totalGroups={activeBoard?.groups.length || 0}
+              onCollapseAll={handleCollapseAll}
+              onExpandAll={handleExpandAll}
             />
 
             {viewMode === 'table' && filteredBoard && (
@@ -611,6 +633,7 @@ export default function Index() {
                 onAddColumn={handleAddColumn} onUpdateColumn={handleUpdateColumn} onRemoveColumn={handleRemoveColumn}
                 onDeleteTask={handleDeleteTask} onDuplicateTask={handleDuplicateTask} onArchiveTask={handleArchiveTask}
                 onUpdateTask={handleTaskUpdate} searchTerm={searchTerm}
+                collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup}
               />
             )}
 

@@ -43,14 +43,14 @@ interface TableViewProps {
   onRemoveColumn: (columnId: string) => void; onDeleteTask: (taskId: string) => void;
   onDuplicateTask: (taskId: string) => void; onArchiveTask: (taskIds: string[]) => void;
   onUpdateTask: (task: Task) => void; searchTerm: string;
+  collapsedGroups: Set<string>; onToggleGroup: (id: string) => void;
 }
 
 export default function TableView({ 
   board, onTaskClick, onAddTask, onAddGroup, onRenameGroup, onDeleteGroup, onArchiveGroup,
   onAddColumn, onUpdateColumn, onRemoveColumn, onDeleteTask, onDuplicateTask,
-  onArchiveTask, onUpdateTask, searchTerm 
+  onArchiveTask, onUpdateTask, searchTerm, collapsedGroups, onToggleGroup 
 }: TableViewProps) {
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set());
   const [editingFormula, setEditingFormula] = useState<BoardColumn | null>(null);
   const [editingCell, setEditingCell] = useState<{taskId: string, colId: string} | null>(null);
@@ -64,13 +64,6 @@ export default function TableView({
     )
   })).filter(g => g.tasks.length > 0 || !searchTerm);
 
-  const toggleGroup = (id: string) => {
-    setCollapsedGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
 
   const calculateSummary = (group: TaskGroup, column: BoardColumn) => {
     let values: any[] = [];
@@ -273,7 +266,7 @@ export default function TableView({
             <div key={group.id} className="mb-8">
               <div className={cn("flex items-stretch bg-white border-y border-r border-[#e6e9ef] mb-2 sticky left-0 group min-h-[48px]", collapsed ? "border-l-[6px]" : "border-none")} style={collapsed ? { borderLeftColor: color } : {}}>
                 <div className="w-10 flex items-center justify-center shrink-0 border-r border-[#e6e9ef]">
-                  <button onClick={() => toggleGroup(group.id)} className="p-1 hover:bg-black/5 rounded transition-colors">
+                  <button onClick={() => onToggleGroup(group.id)} className="p-1 hover:bg-black/5 rounded transition-colors">
                     <ChevronDown className={cn("w-5 h-5 transition-transform text-[#676879]", collapsed && "-rotate-90")} />
                   </button>
                 </div>
