@@ -17,68 +17,38 @@ export const supabase = supabaseInstance;
 
 export async function fetchBoards() {
   try {
+    // Busca simplificada sem ordenação complexa no servidor para evitar erros de sintaxe
+    // Simplificando a busca para o nível mais básico: buscar apenas os quadros primeiro
     const { data: boards, error } = await supabase
       .from('boards')
-      .select(`
-        id,
-        title,
-        workspace_id,
-        board_columns (
-          id, title, type, width, unit, summary_type, position, formula_expr
-        ),
-        task_groups (
-          id, title, color, position, is_archived,
-          tasks (
-            id, name, created_at, position,
-            task_values (
-              column_id, value
-            )
-          )
-        )
-      `)
-      .order('created_at', { ascending: false });
+      .select('id, title, workspace_id')
+      .order('title', { ascending: true });
 
-    if (error) {
-      console.error('CRITICAL: Supabase fetch error:', error.message);
-      // Retornamos um erro customizado para o Index.tsx tratar e avisar o usuário
-      throw new Error(`Database connection failed: ${error.message}`);
-    }
+    if (error) throw error;
 
-    return (boards || []).map(board => ({
-      id: board.id,
-      title: board.title,
-      workspaceId: board.workspace_id || 'default',
-      columns: (board.board_columns || []).map((col: any) => ({
-        id: col.id,
-        title: col.title,
-        type: col.type,
-        width: col.width,
-        unit: col.unit,
-        summaryType: col.summary_type,
-        position: col.position,
-        formulaExpr: col.formula_expr
-      })).sort((a: any, b: any) => a.position - b.position),
-      groups: (board.task_groups || []).sort((a: any, b: any) => a.position - b.position).map((group: any) => ({
-        id: group.id,
-        title: group.title,
-        color: group.color,
-        archived: !!group.is_archived,
-        tasks: (group.tasks || []).sort((a: any, b: any) => a.position - b.position).map((task: any) => {
+    // Depois buscamos os detalhes de cada um (colunas e grupos) sem travar a lista
+    const boardsWithDetails = await Promise.all((boards || []).map(async (board) => {
+      const { data: cols } = await supabase.from('board_columns').select('*').eq('board_id', board.id).order('position', { ascending: true });
+      const { data: groups } = await supabase.from('task_groups').select('*, tasks(*, task_values(*))').eq('board_id', board.id).order('position', { ascending: true });
 
-          const columnValues: Record<string, any> = {};
-          (task.task_values || []).forEach((val: any) => {
-            columnValues[val.column_id] = val.value;
-          });
-          return {
-            id: task.id,
-            name: task.name,
-            columnValues,
-            orderIndex: task.position || 0,
-            groupId: group.id
-          };
-        })
-      }))
+      return {
+        id: board.id,
+        title: board.title,
+        workspaceId: board.workspace_id || 'default',
+        columns: (cols || []).map(c => ({
+          id: c.id, title: c.title, type: c.type, width: c.width, unit: c.unit, summaryType: c.summary_type, position: c.position, formulaExpr: c.formula_expr
+        })),
+        groups: (groups || []).map(g => ({
+          id: g.id, title: g.title, color: g.color, archived: !!g.is_archived, position: g.position || 0,
+          tasks: (g.tasks || []).map((t: any) => ({
+            id: t.id, name: t.name || '', groupId: g.id, orderIndex: t.position || 0, createdAt: t.created_at,
+            columnValues: (t.task_values || []).reduce((acc: any, v: any) => ({ ...acc, [v.column_id]: v.value }), {})
+          })).sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0))
+        }))
+      };
     }));
+
+    return boardsWithDetails;
   } catch (err) {
     console.warn('fetchBoards failed entirely:', err);
     return [];
@@ -124,4 +94,19 @@ export async function createGroup(boardId: string, title: string, color: string)
 
   if (error) throw error;
   return data;
+}
+
+export async function fetchTeamMembers() {
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('*')
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  return data.map(m => ({
+    id: m.id,
+    name: m.name,
+    role: m.role,
+    avatar: m.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.name)}&background=random`
+  }));
 }

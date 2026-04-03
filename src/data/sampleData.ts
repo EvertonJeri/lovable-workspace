@@ -1,6 +1,6 @@
 import { Board, BoardColumn } from '@/types/board';
 
-// Colunas padrão para quadros gerais
+// Colunas padrão originais do PCP, mas com os totalizadores ativados
 const defaultColumns: BoardColumn[] = [
   { id: 'status', type: 'status', title: 'Status', width: 140, position: 0 },
   { id: 'priority', type: 'priority', title: 'Prioridade', width: 100, position: 1 },
@@ -79,11 +79,11 @@ export const sampleBoards: Board[] = [
     columns: [
       { id: 'c3', type: 'number', title: 'Percentual (%)', unit: '%', width: 120, summaryType: 'avg', position: 0 },
       { id: 'c4', type: 'number', title: 'Orçado', unit: 'R$', width: 140, summaryType: 'sum', position: 1 },
-      { id: 'c5', type: 'number', title: 'Semana 01 (%)', unit: '%', width: 120, position: 2 },
-      { id: 'c6', type: 'number', title: 'Semana 02 (%)', unit: '%', width: 120, position: 3 },
-      { id: 'c7', type: 'number', title: 'Semana 03 (%)', unit: '%', width: 120, position: 4 },
-      { id: 'c10', type: 'number', title: 'Semana 04 (%)', unit: '%', width: 120, position: 5 },
-      { id: 'c11', type: 'number', title: 'Semana 05 (%)', unit: '%', width: 120, position: 6 },
+      { id: 'c5', type: 'number', title: 'Semana 01 (%)', unit: '%', width: 120, summaryType: 'avg', position: 2 },
+      { id: 'c6', type: 'number', title: 'Semana 02 (%)', unit: '%', width: 120, summaryType: 'avg', position: 3 },
+      { id: 'c7', type: 'number', title: 'Semana 03 (%)', unit: '%', width: 120, summaryType: 'avg', position: 4 },
+      { id: 'c10', type: 'number', title: 'Semana 04 (%)', unit: '%', width: 120, summaryType: 'avg', position: 5 },
+      { id: 'c11', type: 'number', title: 'Semana 05 (%)', unit: '%', width: 120, summaryType: 'avg', position: 6 },
       { id: 'c8', type: 'status', title: 'Status', width: 140, position: 7 },
       { id: 'c9', type: 'formula', title: 'Fórmula', width: 140, position: 8 },
     ],
@@ -93,11 +93,11 @@ export const sampleBoards: Board[] = [
         title: 'MONTAGEM CHAVES MÉDIO - RECIFE',
         color: 'blue',
         tasks: [
-          { id: 't1', name: '3D', groupId: 'g-montagem', orderIndex: 0, columnValues: { 'c1': 'MONT...', 'c2': '3D', 'c3': 2, 'c4': 3360, 'c8': 'working', 'c9': '3360' } },
-          { id: 't2', name: 'IMPRESSÃO 3D', groupId: 'g-montagem', orderIndex: 1, columnValues: { 'c1': 'MONT...', 'c2': 'IMPRESSÃO 3D', 'c3': 1, 'c4': 1680, 'c8': 'working' } },
-          { id: 't3', name: 'ROUTER', groupId: 'g-montagem', orderIndex: 2, columnValues: { 'c1': 'MONT...', 'c2': 'ROUTER', 'c3': 7, 'c4': 11760, 'c8': 'stuck' } },
-          { id: 't4', name: 'ESCULTURA', groupId: 'g-montagem', orderIndex: 3, columnValues: { 'c1': 'MONT...', 'c2': 'ESCULTURA', 'c3': 13, 'c4': 30240, 'c8': 'done' } },
-          { id: 't5', name: 'FORMA', groupId: 'g-montagem', orderIndex: 4, columnValues: { 'c1': 'MONT...', 'c2': 'FORMA', 'c3': 12, 'c4': 20160, 'c8': 'working' } },
+          { id: 't1', name: '3D', groupId: 'g-montagem', orderIndex: 0, columnValues: { 'c3': 2, 'c4': 3360, 'c5': 0, 'c6': 0, 'c8': 'working', 'c9': '3360' } },
+          { id: 't2', name: 'IMPRESSÃO 3D', groupId: 'g-montagem', orderIndex: 1, columnValues: { 'c3': 1, 'c4': 1680, 'c5': 0, 'c6': 0, 'c8': 'working' } },
+          { id: 't3', name: 'ROUTER', groupId: 'g-montagem', orderIndex: 2, columnValues: { 'c3': 7, 'c4': 11760, 'c5': 0, 'c6': 0, 'c8': 'stuck' } },
+          { id: 't4', name: 'ESCULTURA', groupId: 'g-montagem', orderIndex: 3, columnValues: { 'c3': 13, 'c4': 30240, 'c5': 0, 'c6': 0, 'c8': 'done' } },
+          { id: 't5', name: 'FORMA', groupId: 'g-montagem', orderIndex: 4, columnValues: { 'c3': 12, 'c4': 20160, 'c5': 0, 'c6': 0, 'c8': 'working' } },
         ]
       },
       {
@@ -105,14 +105,12 @@ export const sampleBoards: Board[] = [
         title: 'Logística - Baleia - One Piece',
         color: 'pink',
         tasks: [
-          { id: 't6', name: 'MONTAGEM', groupId: 'g-logistica', orderIndex: 0, columnValues: { 'c1': 'LOG...', 'c2': 'MONTAGEM', 'c3': 100, 'c4': 282355.23, 'c8': 'done' } },
+          { id: 't6', name: 'MONTAGEM', groupId: 'g-logistica', orderIndex: 0, columnValues: { 'c3': 100, 'c4': 282355.23, 'c5': 80, 'c6': 20, 'c8': 'done' } },
         ]
       }
     ]
   },
-
-
 ];
 
-// O board padrão é o PPCP (primeiro da lista, como na imagem original)
+// O board padrão é o PPCP
 export const sampleBoard = sampleBoards[0];

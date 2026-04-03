@@ -9,7 +9,7 @@ import { Automation } from '@/types/automation';
 import TaskDialog from '@/components/TaskDialog';
 import GanttView from '@/components/GanttView';
 import ExecDashboard from '@/components/ExecDashboard';
-import { supabase, fetchBoards } from '@/lib/supabase';
+import { supabase, fetchBoards, createBoard, createTask, updateTaskValue, createGroup, fetchTeamMembers } from '@/lib/supabase';
 import { toast } from 'sonner';
 import ImportDialog from '@/components/ImportDialog';
 import TeamView from '@/components/TeamView';
@@ -27,6 +27,7 @@ export default function Index() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [boardFilters, setBoardFilters] = useState<Record<string, { searchTerm: string, activeFilters: Record<string, string[]> }>>({});
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
 
   const isSample = (id: string) => boards.some(b => b.id === id && (id === 'ppcp-cronograma' || id === 'desempenho-oficial' || id.startsWith('g-') || id.startsWith('p-') || id.startsWith('t-') || id.startsWith('e-')));
 
@@ -107,12 +108,17 @@ export default function Index() {
     async function loadData() {
       setLoading(true);
       try {
-        const data = await fetchBoards();
+        const [boardsData, membersData] = await Promise.all([
+          fetchBoards(),
+          fetchTeamMembers()
+        ]);
+        
         if (mounted) {
-          if (data && data.length > 0) {
-            setBoards([...data, ...sampleBoards]);
-            if (!activeBoardId || (!data.some(b => b.id === activeBoardId) && !sampleBoards.some(b => b.id === activeBoardId))) {
-              setActiveBoardId(data[0].id);
+          setTeamMembers(membersData);
+          if (boardsData && boardsData.length > 0) {
+            setBoards(boardsData);
+            if (!activeBoardId || !boardsData.some(b => b.id === activeBoardId)) {
+              setActiveBoardId(boardsData[0].id);
             }
           } else {
             setBoards(sampleBoards);
@@ -120,7 +126,7 @@ export default function Index() {
           }
         }
       } catch (err: any) {
-        console.error('fetchBoards failed:', err);
+        console.error('fetchData failed:', err);
         if (mounted) {
           setBoards(sampleBoards);
           if (!activeBoardId) setActiveBoardId(sampleBoards[0].id);
@@ -133,6 +139,13 @@ export default function Index() {
     loadData();
     return () => { mounted = false; };
   }, []);
+
+  // Recarregar equipe sempre que voltar para a tabela ou dashboard
+  useEffect(() => {
+    if (viewMode === 'table' || viewMode === 'dashboard') {
+      fetchTeamMembers().then(members => setTeamMembers(members)).catch(console.error);
+    }
+  }, [viewMode]);
 
   const handleTaskUpdate = useCallback(async (updated: Task) => {
     if (isSample(activeBoardId)) {
@@ -204,12 +217,29 @@ export default function Index() {
   }, [boards.length, activeBoardId]);
 
   const handleRenameGroup = useCallback(async (groupId: string, newTitle: string) => {
-    setBoards(prev => prev.map(board => 
-      board.id === activeBoardId 
-        ? { ...board, groups: board.groups.map(g => g.id === groupId ? { ...g, title: newTitle } : g) } 
-        : board
-    ));
-    await supabase.from('task_groups').update({ title: newTitle }).eq('id', groupId);
+    // Atualização local imediata preservando a ordem original
+    setBoards(prev => {
+      const newBoards = [...prev];
+      const boardIndex = newBoards.findIndex(b => b.id === activeBoardId);
+      if (boardIndex === -1) return prev;
+      
+      const newGroups = [...newBoards[boardIndex].groups];
+      const groupIndex = newGroups.findIndex(g => g.id === groupId);
+      if (groupIndex === -1) return prev;
+      
+      newGroups[groupIndex] = { ...newGroups[groupIndex], title: newTitle };
+      newBoards[boardIndex] = { ...newBoards[boardIndex], groups: newGroups };
+      
+      return newBoards;
+    });
+    
+    // Atualização no banco em segundo plano
+    try {
+      await supabase.from('task_groups').update({ title: newTitle }).eq('id', groupId);
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao salvar no servidor');
+    }
   }, [activeBoardId]);
 
   const handleDeleteGroup = useCallback(async (groupId: string) => {
@@ -511,11 +541,11 @@ export default function Index() {
     
     if (bData) {
       const defaultCols = [
-        { title: 'Status', type: 'status', width: 140, position: 0 },
-        { title: 'Prioridade', type: 'priority', width: 100, position: 1 },
-        { title: 'Responsável', type: 'person', width: 150, position: 2 },
-        { title: 'Cronograma', type: 'timeline', width: 200, position: 3 },
-        { title: 'Orçamento', type: 'number', width: 120, unit: 'R$', summary_type: 'sum', position: 4 }
+        { title: 'Status', type: 'status', width: 160, position: 0 },
+        { title: 'Prioridade', type: 'priority', width: 140, position: 1 },
+        { title: 'Responsável', type: 'person', width: 220, position: 2 },
+        { title: 'Cronograma', type: 'timeline', width: 240, position: 3 },
+        { title: 'Orçamento', type: 'number', width: 160, unit: 'R$', summary_type: 'sum', position: 4 }
       ];
 
       const createdCols: BoardColumn[] = [];
@@ -634,6 +664,7 @@ export default function Index() {
                 onDeleteTask={handleDeleteTask} onDuplicateTask={handleDuplicateTask} onArchiveTask={handleArchiveTask}
                 onUpdateTask={handleTaskUpdate} searchTerm={searchTerm}
                 collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup}
+                teamMembers={teamMembers}
               />
             )}
 
