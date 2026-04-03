@@ -454,7 +454,7 @@ export default function TableView({
                   </button>
                 </div>
                 <div 
-                  className="flex-[1.5] min-w-[340px] flex flex-col justify-center px-4 border-r border-[#e6e9ef] min-h-[52px] cursor-pointer hover:bg-slate-50/50 select-none" 
+                  className="flex-[1.5] min-w-[240px] flex flex-col justify-center px-4 border-r border-[#e6e9ef] min-h-[52px] cursor-pointer hover:bg-slate-50/50 select-none" 
                   onDoubleClick={() => { 
                     setEditValue(group.title); 
                     setEditingGroup(group.id); 
@@ -502,154 +502,109 @@ export default function TableView({
               </div>
 
               {!collapsed && (
-                <div className="grid border-l-[6px] rounded-sm shadow-md overflow-hidden" style={{ borderLeftColor: color }}>
-                  <div className="flex items-stretch bg-[#F8F9FA] border-y border-r border-[#e6e9ef] sticky top-0 z-10 text-[12px] text-[#676879] h-10 uppercase tracking-wider font-bold">
-                    <div className="w-10 border-r border-[#e6e9ef] flex items-center justify-center shrink-0"><div className="w-4 h-4 border border-[#c3c6cd] rounded-sm bg-white" /></div>
-                    <div className="flex-[1.5] min-w-[340px] border-r border-[#e6e9ef] flex items-center px-4 shrink-0 text-[#323338]">Tarefa</div>
-                    {board.columns.map(col => {
-                      const Icon = columnIcons[col.type] || Hash;
-                      
-                      if (editingColumn === col.id) {
-                        return (
-                          <div 
-                            key={col.id} 
-                            className="border-r border-[#e6e9ef] flex items-center justify-center shrink-0 px-2 bg-white ring-2 ring-blue-500 ring-inset z-50" 
-                            style={{ width: col.width || 140, minWidth: col.width || 140 }}
-                          >
-                            <input 
-                              ref={colInputRef}
-                              className="w-full bg-white border-none px-2 py-1 text-[12px] font-bold text-slate-800 outline-none" 
-                              value={editValue} 
-                              onChange={e => setEditValue(e.target.value)} 
-                              onBlur={() => { 
-                                if (editingColumn === col.id) {
-                                  onUpdateColumn(col.id, { title: editValue }); 
-                                  setEditingColumn(null); 
-                                }
-                              }} 
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') {
-                                  onUpdateColumn(col.id, { title: editValue });
-                                  setEditingColumn(null);
-                                }
-                                if (e.key === 'Escape') setEditingColumn(null);
-                              }} 
-                              onClick={e => e.stopPropagation()}
-                            />
-                          </div>
-                        );
-                      }
-
-                      return (
+                <div 
+                  className="grid border-l-[6px] rounded-sm shadow-md overflow-x-auto bg-[#F8F9FA]" 
+                  style={{ 
+                    borderLeftColor: color,
+                    gridTemplateColumns: `40px 240px ${board.columns.map(c => `minmax(${c.width || 120}px, max-content)`).join(' ')} 1fr`,
+                    display: 'grid'
+                  }}
+                >
+                  {/* HEADER ROW */}
+                  <div className="contents bg-[#F8F9FA] text-[12px] text-[#676879] uppercase tracking-wider font-bold">
+                    <div className="border-r border-y border-[#e6e9ef] flex items-center justify-center h-10 sticky top-0 z-10 bg-[#F8F9FA]"><div className="w-4 h-4 border border-[#c3c6cd] rounded-sm bg-white" /></div>
+                    <div className="border-r border-y border-[#e6e9ef] flex items-center px-4 text-[#323338] h-10 sticky top-0 z-10 bg-[#F8F9FA]">Tarefa</div>
+                    {board.columns.map(col => (
                         <div 
                           key={col.id} 
-                          className="border-r border-[#e6e9ef] flex items-center justify-between shrink-0 px-3 gap-2 cursor-pointer hover:bg-[#EBEDF0] transition-colors relative group/col h-full select-none" 
-                          style={{ width: col.width || 180, minWidth: col.width || 180 }}
+                          className="border-r border-y border-[#e6e9ef] flex items-center justify-between px-6 gap-2 cursor-pointer hover:bg-[#EBEDF0] transition-colors relative group/col h-10 sticky top-0 z-10 bg-[#F8F9FA] select-none whitespace-nowrap" 
                           onDoubleClick={(e) => {
                             e.stopPropagation();
                             setEditValue(col.title);
                             setEditingColumn(col.id);
                           }}
                         >
-                            <div className="flex items-center gap-1.5 truncate pointer-events-none">
-                              <span className="truncate font-bold text-[#323338]">{col.title}</span>
+                            <div className="flex items-center gap-1.5 pointer-events-none">
+                              <span className="font-bold text-[#323338]">{col.title}</span>
                             </div>
 
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <button 
-                                  className="p-1 hover:bg-slate-200 rounded-md opacity-0 group-hover/col:opacity-100 transition-opacity ml-auto"
-                                  onClick={e => e.stopPropagation()}
-                                >
-                                  <MoreHorizontal className="w-3.5 h-3.5 text-[#676879]" />
+                                <button className="opacity-0 group-hover/col:opacity-100 p-1 hover:bg-slate-200 rounded transition-all">
+                                  <ChevronDown className="w-3 h-3 text-slate-500" />
                                 </button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent className="w-48 p-1 bg-white border shadow-xl rounded-lg z-[100]">
-                                <DropdownMenuItem 
-                                  className="flex items-center gap-2 p-2 text-sm hover:bg-slate-50 cursor-pointer font-medium" 
-                                  onSelect={(e) => { 
-                                    e.preventDefault(); 
-                                    setEditValue(col.title); 
-                                    setEditingColumn(col.id); 
-                                  }}
-                                >
-                                  <Pencil className="w-4 h-4 text-blue-500" /> Renomear Coluna
+                              <DropdownMenuContent className="w-48 bg-white border border-slate-200 shadow-xl rounded-lg p-1 z-[110]">
+                                <DropdownMenuItem className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 rounded-md cursor-pointer text-slate-600" onClick={() => { setEditValue(col.title); setEditingColumn(col.id); }}>
+                                  <Pencil className="w-4 h-4" /> Renomear Coluna
                                 </DropdownMenuItem>
-                                <DropdownMenuSeparator className="bg-slate-100" />
-                                <DropdownMenuItem 
-                                  className="flex items-center gap-2 p-2 text-sm text-red-500 hover:bg-red-50 cursor-pointer font-medium" 
-                                  onSelect={() => onRemoveColumn(col.id)}
-                                >
+                                <DropdownMenuItem className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 rounded-md cursor-pointer text-red-500" onClick={() => onRemoveColumn(col.id)}>
                                   <Trash2 className="w-4 h-4" /> Excluir Coluna
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                         </div>
-                      );
-                    })}
-                    <div className="w-10 border-r border-[#e6e9ef] flex items-center justify-center shrink-0"><Plus className="w-4 h-4 cursor-pointer hover:text-blue-500 hover:scale-125 transition-transform" onClick={() => onAddColumn('number', 'Nova Coluna')} /></div>
-                    <div className="flex-1 bg-[#F8F9FA] border-b border-[#e6e9ef]" />
+                    ))}
+                    <div className="border-y border-[#e6e9ef] flex items-center px-4 h-10 sticky top-0 z-10 bg-[#F8F9FA]">
+                       <Plus className="w-4 h-4 cursor-pointer hover:text-blue-500 hover:scale-125 transition-transform" onClick={() => onAddColumn('number', 'Nova Coluna')} />
+                    </div>
                   </div>
+
+                  {/* TASKS ROWS */}
                   {group.tasks.map((task) => (
-                    <div key={task.id} className="flex items-stretch bg-white border-b border-r border-[#e6e9ef] text-[13px] hover:bg-[#f0f4ff] hover:shadow-inner transition-all h-[40px] group/row">
-                      <div className="w-10 border-r border-[#e6e9ef] flex items-center justify-center shrink-0"><div className={cn("w-4 h-4 border rounded-sm transition-colors cursor-pointer", selectedTasks.has(task.id) ? "bg-blue-500 border-blue-500 shadow-sm" : "border-[#c3c6cd] bg-white group-hover/row:border-blue-400")} onClick={() => setSelectedTasks(prev => { const n = new Set(prev); if (n.has(task.id)) n.delete(task.id); else n.add(task.id); return n; })}>{selectedTasks.has(task.id) && <Check className="w-3 h-3 text-white m-auto" />}</div></div>
+                    <div key={task.id} className="contents group/row">
+                      <div className="border-r border-b border-[#e6e9ef] flex items-center justify-center bg-white h-10 text-[13px] hover:bg-[#f0f4ff] transition-colors"><div className={cn("w-4 h-4 border rounded-sm transition-colors cursor-pointer", selectedTasks.has(task.id) ? "bg-blue-500 border-blue-500 shadow-sm" : "border-[#c3c6cd] bg-white group-hover/row:border-blue-400")} onClick={() => setSelectedTasks(prev => { const n = new Set(prev); if (n.has(task.id)) n.delete(task.id); else n.add(task.id); return n; })}>{selectedTasks.has(task.id) && <Check className="w-3 h-3 text-white m-auto" />}</div></div>
                       <div 
-                        className="flex-[1.5] min-w-[340px] border-r border-[#e6e9ef] flex items-center px-4 gap-2 shrink-0 truncate text-[#323338] font-medium cursor-pointer select-none"
+                        className="border-r border-b border-[#e6e9ef] flex items-center px-4 gap-2 truncate text-[#323338] font-medium cursor-pointer select-none bg-white h-10 text-[13px] hover:bg-[#f0f4ff] transition-colors"
                         onDoubleClick={() => {
                           setEditValue(task.name);
                           setEditingTask(task.id);
                         }}
                       >
-                        <GripVertical className="w-4 h-4 text-muted-foreground/20 cursor-grab active:cursor-grabbing" />
                         {editingTask === task.id ? (
                            <input 
-                            ref={taskInputRef}
-                            className="w-full bg-white border-blue-500 border-2 px-1 text-[13px] outline-none shadow-[0_0_0_2px_rgba(37,99,235,0.1)]" 
+                            autoFocus
+                            className="w-full h-full bg-transparent outline-none border-b border-blue-500" 
                             value={editValue} 
                             onChange={e => setEditValue(e.target.value)} 
-                            onBlur={() => { 
-                              if (editingTask) {
-                                onUpdateTask({ ...task, name: editValue }); 
-                                setEditingTask(null); 
-                              }
-                            }} 
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') {
-                                onUpdateTask({ ...task, name: editValue }); 
-                                setEditingTask(null); 
-                              }
-                              if (e.key === 'Escape') setEditingTask(null);
-                            }} 
+                            onBlur={() => { onUpdateTask({ ...task, name: editValue }); setEditingTask(null); }} 
+                            onKeyDown={e => e.key === 'Enter' && (onUpdateTask({ ...task, name: editValue }), setEditingTask(null))}
                             onClick={e => e.stopPropagation()}
                            />
                         ) : (
-                           <span className="hover:text-blue-600 transition-colors">
+                           <span className="truncate hover:text-blue-600 transition-colors">
                              {task.name}
                            </span>
                         )}
                       </div>
-                      {board.columns.map(col => (<div key={col.id} className="border-r border-[#e6e9ef] flex items-center justify-center shrink-0 transition-colors focus-within:ring-2 focus-within:ring-blue-400 focus-within:z-20" style={{ width: col.width || 140, minWidth: col.width || 140 }}>{renderCell(task, col)}</div>))}
-                      <div className="flex-1 flex items-center justify-end px-4 opacity-0 group-hover/row:opacity-100 transition-opacity gap-2">
-                        <Copy className="w-3.5 h-3.5 text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => onDuplicateTask(task.id)} />
-                        <Trash2 className="w-3.5 h-3.5 text-red-400 cursor-pointer hover:text-red-600" onClick={() => onDeleteTask(task.id)} />
+                      {board.columns.map(col => (<div key={col.id} className="border-r border-b border-[#e6e9ef] flex items-center justify-center transition-colors focus-within:ring-2 focus-within:ring-blue-400 focus-within:z-20 px-6 whitespace-nowrap overflow-hidden bg-white h-10 text-[13px] hover:bg-[#f0f4ff] transition-colors">{renderCell(task, col)}</div>))}
+                      <div className="border-b border-[#e6e9ef] flex items-center justify-end px-4 gap-2 transition-colors bg-white h-10 hover:bg-[#f0f4ff]">
+                        <div className="flex items-center gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                          <Copy className="w-3.5 h-3.5 text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => onDuplicateTask(task.id)} />
+                          <Trash2 className="w-3.5 h-3.5 text-red-400 cursor-pointer hover:text-red-600" onClick={() => onDeleteTask(task.id)} />
+                        </div>
                       </div>
                     </div>
                   ))}
-                  <div className="flex items-stretch bg-white border-b border-r border-[#e6e9ef] h-[40px] group/new">
-                    <div className="w-10 border-r border-[#e6e9ef] flex items-center justify-center shrink-0"><Plus className="w-4 h-4 text-blue-500 group-hover/new:scale-125 transition-transform" /></div>
-                    <input className="flex-[1.5] min-w-[340px] px-4 bg-transparent outline-none text-[13px] font-medium" placeholder="+ Adicionar tarefa" onKeyDown={e => e.key === 'Enter' && e.currentTarget.value && (onAddTask(group.id), e.currentTarget.value = '')} />
+
+                  {/* NEW TASK INPUT ROW */}
+                  <div className="contents group/new">
+                    <div className="border-r border-b border-[#e6e9ef] flex items-center justify-center bg-white h-10"><Plus className="w-4 h-4 text-blue-500 group-hover/new:scale-125 transition-transform" /></div>
+                    <input className="border-r border-b border-[#e6e9ef] px-4 bg-white outline-none text-[13px] font-medium h-10" placeholder="+ Adicionar tarefa" onKeyDown={e => e.key === 'Enter' && e.currentTarget.value && (onAddTask(group.id), e.currentTarget.value = '')} />
+                    {board.columns.map(col => <div key={col.id} className="border-r border-b border-[#e6e9ef] bg-white h-10" />)}
+                    <div className="border-b border-[#e6e9ef] bg-white h-10" />
                   </div>
                   
                   {/* FOOTER SUMMARY ROW */}
-                  <div className="flex items-stretch bg-[#FBFCFD] border-b border-r border-[#e6e9ef] h-14 mt-1 font-bold text-slate-700 shadow-sm">
-                    <div className="w-10 border-r border-[#e6e9ef] shrink-0" />
-                    <div className="flex-[1.5] min-w-[340px] border-r border-[#e6e9ef] flex items-center px-4 text-[10px] uppercase text-slate-400 tracking-widest">Resumo do Grupo</div>
+                  <div className="contents text-[11px] font-bold text-slate-500 bg-[#F8F9FA]">
+                    <div className="border-r border-[#e6e9ef] h-10" />
+                    <div className="border-r border-[#e6e9ef] flex items-center px-4 text-[10px] uppercase text-slate-400 tracking-widest h-10">Resumo do Grupo</div>
                     {board.columns.map(col => (
-                      <div key={col.id} className="border-r border-[#e6e9ef] flex items-center justify-center shrink-0" style={{ width: col.width || 140, minWidth: col.width || 140 }}>
+                      <div key={col.id} className="border-r border-[#e6e9ef] flex items-center justify-center px-6 whitespace-nowrap h-10 bg-[#F8F9FA]">
                         {calculateSummary(group, col)}
                       </div>
                     ))}
-                    <div className="flex-1" />
+                    <div className="h-10" />
                   </div>
                 </div>
               )}
