@@ -19,6 +19,7 @@ interface AppSidebarProps {
   onDeleteBoard: (id: string) => void;
   onDuplicateBoard: (id: string) => void;
   onSelectTeam: () => void;
+  onSelectGenerator: () => void;
 }
 
 export default function AppSidebar({ 
@@ -29,7 +30,8 @@ export default function AppSidebar({
   onRenameBoard,
   onDeleteBoard,
   onDuplicateBoard,
-  onSelectTeam
+  onSelectTeam,
+  onSelectGenerator
 }: AppSidebarProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -90,6 +92,18 @@ export default function AppSidebar({
         </div>
 
         <div className={cn("flex-1 overflow-y-auto px-2 py-4 space-y-1 no-scrollbar", isCollapsed && "flex flex-col items-center")}>
+          <button 
+             onClick={onSelectGenerator} 
+             className={cn(
+               "flex items-center gap-2 w-full px-2 py-2 rounded text-[13px] text-[#333333] hover:bg-[#f5f6f8] transition-colors group",
+               isCollapsed && "justify-center"
+             )}
+             title={isCollapsed ? "Gerador de Grupo" : ""}
+          >
+            <LayoutGrid className="w-4 h-4 text-[#676879] group-hover:text-blue-500" />
+            {!isCollapsed && <span>Gerador de Grupo</span>}
+          </button>
+
           <button 
              onClick={onSelectTeam} 
              className={cn(

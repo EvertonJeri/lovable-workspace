@@ -23,7 +23,7 @@ export function evaluateFormula(formula: string, task: Task, columns: BoardColum
     // DATE({Column}) → extracts a date string from a column
     const dateRegex = /DATE\s*\(\s*\{(.+?)\}\s*\)/gi;
     expression = expression.replace(dateRegex, (_, colRef) => {
-      const col = columns.find(c => c.title === colRef);
+      const col = columns.find(c => c.title.toLowerCase() === colRef.toLowerCase());
       const val = col ? task.columnValues[col.id] : null;
       const d = getAsDate(val, 'start');
       return d ? `"${format(d, 'yyyy-MM-dd')}"` : '"N/A"';
@@ -32,8 +32,8 @@ export function evaluateFormula(formula: string, task: Task, columns: BoardColum
     // DAYS({End}, {Start}) → difference in calendar days
     const daysRegex = /DAYS\s*\(\s*\{(.+?)\}\s*,\s*\{(.+?)\}\s*\)/gi;
     expression = expression.replace(daysRegex, (_, colRef1, colRef2) => {
-      const col1 = columns.find(c => c.title === colRef1);
-      const col2 = columns.find(c => c.title === colRef2);
+      const col1 = columns.find(c => c.title.toLowerCase() === colRef1.toLowerCase());
+      const col2 = columns.find(c => c.title.toLowerCase() === colRef2.toLowerCase());
       const val1 = col1 ? task.columnValues[col1.id] : null;
       const val2 = col2 ? task.columnValues[col2.id] : null;
       const d1 = getAsDate(val1, 'end');
@@ -45,8 +45,8 @@ export function evaluateFormula(formula: string, task: Task, columns: BoardColum
     // WORKDAYS({End}, {Start}) → difference in business days (Mon-Fri)
     const workdaysRegex = /WORKDAYS\s*\(\s*\{(.+?)\}\s*,\s*\{(.+?)\}\s*\)/gi;
     expression = expression.replace(workdaysRegex, (_, colRef1, colRef2) => {
-      const col1 = columns.find(c => c.title === colRef1);
-      const col2 = columns.find(c => c.title === colRef2);
+      const col1 = columns.find(c => c.title.toLowerCase() === colRef1.toLowerCase());
+      const col2 = columns.find(c => c.title.toLowerCase() === colRef2.toLowerCase());
       const val1 = col1 ? task.columnValues[col1.id] : null;
       const val2 = col2 ? task.columnValues[col2.id] : null;
       const d1 = getAsDate(val1, 'end');
@@ -62,7 +62,7 @@ export function evaluateFormula(formula: string, task: Task, columns: BoardColum
       let total = 0;
       refs.forEach(ref => {
         const colName = ref.replace(/[{}]/g, '');
-        const col = columns.find(c => c.title === colName);
+        const col = columns.find(c => c.title.toLowerCase() === colName.toLowerCase());
         if (col) {
           const val = task.columnValues[col.id];
           total += typeof val === 'number' ? val : parseFloat(String(val)) || 0;
@@ -78,7 +78,7 @@ export function evaluateFormula(formula: string, task: Task, columns: BoardColum
       let count = 0;
       refs.forEach(ref => {
         const colName = ref.replace(/[{}]/g, '');
-        const col = columns.find(c => c.title === colName);
+        const col = columns.find(c => c.title.toLowerCase() === colName.toLowerCase());
         if (col) {
           const val = task.columnValues[col.id];
           if (val !== null && val !== undefined && val !== '' && val !== 0) count++;
@@ -95,7 +95,7 @@ export function evaluateFormula(formula: string, task: Task, columns: BoardColum
       let n = 0;
       refs.forEach(ref => {
         const colName = ref.replace(/[{}]/g, '');
-        const col = columns.find(c => c.title === colName);
+        const col = columns.find(c => c.title.toLowerCase() === colName.toLowerCase());
         if (col) {
           const val = task.columnValues[col.id];
           const num = typeof val === 'number' ? val : parseFloat(String(val));
@@ -161,13 +161,17 @@ export function evaluateFormula(formula: string, task: Task, columns: BoardColum
     });
 
     // ============ COLUMN VALUE REPLACEMENT ============
-    // Replace {Column Name} with actual numeric values
+    // Replace {Column Name} with actual numeric values (case-insensitive)
     columns.forEach(col => {
       const val = task.columnValues[col.id];
       const numericValue = typeof val === 'number' ? val : parseFloat(String(val)) || 0;
-      const placeholder = `{${col.title}}`;
-      if (expression.includes(placeholder)) {
-        expression = expression.split(placeholder).join(String(numericValue));
+      
+      // Escape special regex characters in the title just in case it contains them
+      const escapedTitle = col.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const placeholderRegex = new RegExp(`\\{${escapedTitle}\\}`, 'gi');
+      
+      if (expression.match(placeholderRegex)) {
+        expression = expression.replace(placeholderRegex, String(numericValue));
       }
     });
 
@@ -195,7 +199,7 @@ export function evaluateFormula(formula: string, task: Task, columns: BoardColum
 function resolveValue(val: string, task: Task, columns: BoardColumn[]): string {
   const colMatch = val.match(/^\{(.+)\}$/);
   if (colMatch) {
-    const col = columns.find(c => c.title === colMatch[1]);
+    const col = columns.find(c => c.title.toLowerCase() === colMatch[1].toLowerCase());
     if (col) {
       const v = task.columnValues[col.id];
       return String(typeof v === 'number' ? v : parseFloat(String(v)) || 0);

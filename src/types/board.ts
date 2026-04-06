@@ -14,7 +14,7 @@ export type ColumnType =
   | 'priority'
   | 'time';
 
-export type ViewMode = 'table' | 'kanban' | 'timeline' | 'calendar' | 'dashboard' | 'gantt';
+export type ViewMode = 'table' | 'kanban' | 'timeline' | 'calendar' | 'dashboard' | 'gantt' | 'generator';
 
 export type TaskStatus = 'done' | 'working' | 'stuck' | 'default';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
@@ -74,7 +74,7 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
   done: 'Concluído',
   working: 'Em progresso',
   stuck: 'Travado',
-  default: 'Pendente',
+  default: 'Não iniciado',
 };
 
 export const PRIORITY_LABELS: Record<TaskPriority, string> = {

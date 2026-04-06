@@ -14,11 +14,12 @@ import { toast } from 'sonner';
 import ImportDialog from '@/components/ImportDialog';
 import TeamView from '@/components/TeamView';
 import ArchivedItemsDialog from '@/components/ArchivedItemsDialog';
+import GroupGenerator from '@/components/GroupGenerator';
 
 export default function Index() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string>('');
-  const [viewMode, setViewMode] = useState<ViewMode | 'team'>('table');
+  const [viewMode, setViewMode] = useState<ViewMode | 'team' | 'generator'>('table');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isAutomationOpen, setIsAutomationOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -29,7 +30,15 @@ export default function Index() {
   const [boardFilters, setBoardFilters] = useState<Record<string, { searchTerm: string, activeFilters: Record<string, string[]> }>>({});
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
 
-  const isSample = (id: string) => boards.some(b => b.id === id && (id === 'ppcp-cronograma' || id === 'desempenho-oficial' || id.startsWith('g-') || id.startsWith('p-') || id.startsWith('t-') || id.startsWith('e-')));
+  const isSample = useCallback((id: string) => 
+    boards.some(b => b.id === id && (
+      id === 'ppcp-cronograma' || 
+      id === 'desempenho-oficial' || 
+      id.startsWith('g-') || 
+      id.startsWith('p-') || 
+      id.startsWith('t-') || 
+      id.startsWith('e-')
+    )), [boards]);
 
   const activeBoard = useMemo(() => {
     return boards.find((b) => b.id === activeBoardId) || boards[0] || sampleBoard;
@@ -301,11 +310,21 @@ export default function Index() {
     await supabase.from('task_groups').insert({ id: newGroup.id, board_id: targetBoardId, title: newGroup.title, color: 'blue' });
   }, [activeBoardId, activeBoard]);
 
-  const handleAddColumn = useCallback(async (type: any, title: string) => {
-    const newCol: BoardColumn = { id: crypto.randomUUID(), type, title, width: 160, position: activeBoard.columns.length };
-    setBoards(prev => prev.map(board => board.id === activeBoardId ? { ...board, columns: [...board.columns, newCol] } : board));
-    await supabase.from('board_columns').insert({ id: newCol.id, board_id: activeBoardId, type, title, width: 160, position: newCol.position });
-  }, [activeBoardId, activeBoard.columns.length]);
+  const handleAddColumn = useCallback(async (type: any, title: string, forBoardId?: string) => {
+    let targetBoardId = forBoardId || activeBoardId;
+    if (isSample(targetBoardId)) {
+      const result = await persistBoard(activeBoard);
+      if (!result) return;
+      targetBoardId = result.id;
+      if (!forBoardId) setActiveBoardId(targetBoardId);
+    }
+
+    const targetBoard = boards.find(b => b.id === targetBoardId) || activeBoard;
+    const newCol: BoardColumn = { id: crypto.randomUUID(), type, title, width: 160, position: targetBoard.columns.length };
+    setBoards(prev => prev.map(board => board.id === targetBoardId || board.id === activeBoardId ? { ...board, columns: [...board.columns, newCol] } : board));
+    await supabase.from('board_columns').insert({ id: newCol.id, board_id: targetBoardId, type, title, width: 160, position: newCol.position });
+    return newCol.id;
+  }, [activeBoardId, activeBoard, persistBoard, isSample, boards]);
 
   const handleUpdateColumn = useCallback(async (columnId: string, updates: Partial<BoardColumn>) => {
     const supabaseUpdates: any = { ...updates };
@@ -324,6 +343,41 @@ export default function Index() {
         : board
     ));
     await supabase.from('board_columns').update(supabaseUpdates).eq('id', columnId);
+  }, [activeBoardId]);
+
+  const handleMoveColumn = useCallback(async (columnId: string, direction: 'left' | 'right') => {
+    setBoards(prev => {
+      const newBoards = [...prev];
+      const boardIndex = newBoards.findIndex(b => b.id === activeBoardId);
+      if (boardIndex === -1) return prev;
+      
+      const board = newBoards[boardIndex];
+      const columns = [...board.columns];
+      const colIndex = columns.findIndex(c => c.id === columnId);
+      
+      if (colIndex === -1) return prev;
+      if (direction === 'left' && colIndex === 0) return prev;
+      if (direction === 'right' && colIndex === columns.length - 1) return prev;
+      
+      const targetIndex = direction === 'left' ? colIndex - 1 : colIndex + 1;
+      
+      // Swap elements
+      const temp = columns[colIndex];
+      columns[colIndex] = columns[targetIndex];
+      columns[targetIndex] = temp;
+      
+      // Update positions
+      columns[colIndex] = { ...columns[colIndex], position: colIndex };
+      columns[targetIndex] = { ...columns[targetIndex], position: targetIndex };
+      
+      newBoards[boardIndex] = { ...board, columns }; // Clone board object to trigger React update
+      
+      // Persist reordered positions
+      supabase.from('board_columns').update({ position: colIndex }).eq('id', columns[colIndex].id).then();
+      supabase.from('board_columns').update({ position: targetIndex }).eq('id', columns[targetIndex].id).then();
+      
+      return newBoards;
+    });
   }, [activeBoardId]);
 
   const handleRemoveColumn = useCallback(async (columnId: string) => {
@@ -630,10 +684,22 @@ export default function Index() {
         onDeleteBoard={handleDeleteBoard}
         onDuplicateBoard={handleDuplicateBoard}
         onSelectTeam={() => setViewMode('team')}
+        onSelectGenerator={() => setViewMode('generator')}
       />
 
       <main className="flex-1 overflow-y-auto">
-        {viewMode === 'team' ? <TeamView /> : (
+        {viewMode === 'team' ? <TeamView /> : viewMode === 'generator' ? (
+          <GroupGenerator 
+            boards={boards} 
+            onAddColumn={handleAddColumn as (type: any, title: string, forBoardId?: string) => Promise<string | undefined>}
+            onGeneratorComplete={(boardId) => {
+            fetchBoards().then(data => {
+              setBoards([...data, ...sampleBoards]);
+              setActiveBoardId(boardId);
+              setViewMode('table');
+            });
+          }} />
+        ) : (
           <>
             <BoardHeader
               title={activeBoard?.title || 'Sem título'}
@@ -661,6 +727,7 @@ export default function Index() {
                 board={filteredBoard} onTaskClick={setSelectedTask} onAddTask={handleAddTask} onAddGroup={handleAddGroup}
                 onRenameGroup={handleRenameGroup} onDeleteGroup={handleDeleteGroup} onArchiveGroup={handleArchiveGroup}
                 onAddColumn={handleAddColumn} onUpdateColumn={handleUpdateColumn} onRemoveColumn={handleRemoveColumn}
+                onMoveColumn={handleMoveColumn}
                 onDeleteTask={handleDeleteTask} onDuplicateTask={handleDuplicateTask} onArchiveTask={handleArchiveTask}
                 onUpdateTask={handleTaskUpdate} searchTerm={searchTerm}
                 collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup}

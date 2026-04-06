@@ -2,12 +2,15 @@ import { Board, BoardColumn } from '@/types/board';
 
 // Colunas padrão originais do PCP, mas com os totalizadores ativados
 const defaultColumns: BoardColumn[] = [
-  { id: 'status', type: 'status', title: 'Status', width: 140, position: 0 },
-  { id: 'priority', type: 'priority', title: 'Prioridade', width: 100, position: 1 },
-  { id: 'assignee', type: 'person', title: 'Responsável', width: 150, position: 2 },
-  { id: 'timeline', type: 'timeline', title: 'Cronograma', width: 200, position: 3 },
-  { id: 'budget', type: 'number', title: 'Orçamento', width: 120, summaryType: 'sum', unit: 'R$', position: 4 },
-  { id: 'progress', type: 'progress', title: 'Progresso', width: 150, summaryType: 'avg', position: 5 },
+  { id: 'assignee', type: 'person', title: 'Responsável', width: 140, position: 0 },
+  { id: 'status', type: 'status', title: 'Status', width: 140, position: 1 },
+  { id: 'deliveryDate', type: 'date', title: 'Data de Entr.', width: 120, position: 2 },
+  { id: 'timeline', type: 'timeline', title: 'Cronograma', width: 160, position: 3 },
+  { id: 'percentage', type: 'number', title: '%', unit: '%', width: 80, summaryType: 'avg', position: 4 },
+  { id: 'budget', type: 'number', title: 'Orçamento Job', unit: 'R$', width: 140, summaryType: 'sum', position: 5 },
+  { id: 'materialCost', type: 'number', title: 'Custo Material', unit: 'R$', width: 140, summaryType: 'sum', position: 6 },
+  { id: 'moCost', type: 'number', title: 'Custo M.O', unit: 'R$', width: 140, summaryType: 'sum', position: 7 },
+  { id: 'finalCost', type: 'formula', title: 'Cálculo Custo', formulaExpr: '{7} + {8}', width: 140, position: 8 },
 ];
 
 export const sampleBoards: Board[] = [
