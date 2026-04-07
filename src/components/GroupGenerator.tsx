@@ -210,7 +210,7 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
           if (byTitle) return byTitle;
 
           // 2. Fuzzy search for keywords
-          const fuzzyKeywords = ['orcament', 'budg', 'custo', 'valor', 'job', 'financeiro'];
+          const fuzzyKeywords = ['orcad', 'orcament', 'budg', 'custo', 'valor', 'financeiro'];
           const fuzzy = allColumns.find(c => {
              const nt = normalize(c.title);
              return fuzzyKeywords.some(k => nt.includes(k));

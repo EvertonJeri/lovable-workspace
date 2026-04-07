@@ -527,7 +527,7 @@ export default function TableView({
         </div>;
       default:
         if (isEditing) {
-          const isNumeric = column.type === 'number' || column.title.toLowerCase().includes('%') || column.type === 'progress';
+          const isNumeric = column.title.toLowerCase().includes('%') || column.title.toLowerCase().includes('progress');
           return (
             <input 
               ref={colInputRef} 
