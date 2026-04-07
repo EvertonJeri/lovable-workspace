@@ -525,20 +525,9 @@ export default function TableView({
         return <div className="w-full h-full flex items-center justify-center cursor-text hover:bg-slate-50/50" onClick={e => { e.stopPropagation(); setEditValue(task.columnValues[column.id] || ''); setEditingCell({taskId: task.id, colId: column.id}); }}>
           {isInvalid ? '—' : `${new Intl.NumberFormat('pt-BR').format(numValue)}${column.unit === 'R$' ? ' R$' : column.unit === '%' ? '%' : ''}`}
         </div>;
-      case 'formula':
-        const formulaResult = column.formulaExpr ? evaluateFormula(column.formulaExpr, task, board.columns) : '';
-        const numResult = typeof formulaResult === 'number' ? formulaResult : parseFloat(String(formulaResult));
-        const showAsNum = !isNaN(numResult) && formulaResult !== 'Error' && formulaResult !== '';
-        return (
-          <div className="w-full h-full flex items-center justify-center bg-blue-50/20 text-blue-700 font-medium" onClick={e => e.stopPropagation()}>
-            {showAsNum 
-              ? `${new Intl.NumberFormat('pt-BR').format(numResult)}${column.unit === 'R$' ? ' R$' : column.unit === '%' ? '%' : ''}` 
-              : String(formulaResult || '')}
-          </div>
-        );
       default:
         if (isEditing) {
-          const isNumeric = column.type === 'number' || column.title.toLowerCase().includes('%') || column.type === 'progress';
+          const isNumeric = column.title.toLowerCase().includes('%') || column.title.toLowerCase().includes('progress');
           return (
             <input 
               ref={colInputRef} 

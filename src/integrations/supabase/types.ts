@@ -14,7 +14,200 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      board_columns: {
+        Row: {
+          board_id: string | null
+          formula_expr: string | null
+          id: string
+          position: number | null
+          summary_type: string | null
+          title: string
+          type: string
+          unit: string | null
+          width: number | null
+        }
+        Insert: {
+          board_id?: string | null
+          formula_expr?: string | null
+          id?: string
+          position?: number | null
+          summary_type?: string | null
+          title: string
+          type: string
+          unit?: string | null
+          width?: number | null
+        }
+        Update: {
+          board_id?: string | null
+          formula_expr?: string | null
+          id?: string
+          position?: number | null
+          summary_type?: string | null
+          title?: string
+          type?: string
+          unit?: string | null
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "board_columns_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      boards: {
+        Row: {
+          created_at: string | null
+          id: string
+          title: string
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          title: string
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          title?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
+      task_groups: {
+        Row: {
+          board_id: string | null
+          color: string | null
+          id: string
+          is_archived: boolean | null
+          position: number | null
+          title: string
+        }
+        Insert: {
+          board_id?: string | null
+          color?: string | null
+          id?: string
+          is_archived?: boolean | null
+          position?: number | null
+          title: string
+        }
+        Update: {
+          board_id?: string | null
+          color?: string | null
+          id?: string
+          is_archived?: boolean | null
+          position?: number | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_groups_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      task_values: {
+        Row: {
+          column_id: string
+          task_id: string
+          value: Json | null
+        }
+        Insert: {
+          column_id: string
+          task_id: string
+          value?: Json | null
+        }
+        Update: {
+          column_id?: string
+          task_id?: string
+          value?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_values_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tasks: {
+        Row: {
+          created_at: string | null
+          group_id: string | null
+          id: string
+          is_archived: boolean | null
+          name: string
+          position: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          group_id?: string | null
+          id?: string
+          is_archived?: boolean | null
+          name: string
+          position?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          group_id?: string | null
+          id?: string
+          is_archived?: boolean | null
+          name?: string
+          position?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tasks_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "task_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      team_members: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          department: string | null
+          email: string | null
+          id: string
+          name: string
+          role: string | null
+          status: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          department?: string | null
+          email?: string | null
+          id?: string
+          name: string
+          role?: string | null
+          status?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          department?: string | null
+          email?: string | null
+          id?: string
+          name?: string
+          role?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
