@@ -99,7 +99,14 @@ export default function TableView({
     }
   }, [editingTask]);
 
-  const displayGroups = board.groups;
+  const displayGroups = [...board.groups].sort((a, b) => {
+    const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "");
+    const isA = normalize(a.title).includes('historico');
+    const isB = normalize(b.title).includes('historico');
+    if (isA) return -1;
+    if (isB) return 1;
+    return 0;
+  });
 
   const calculateSummary = (group: TaskGroup, column: BoardColumn) => {
     let values: any[] = [];
@@ -143,15 +150,18 @@ export default function TableView({
 
     // Default visual for Progress / Percentage (when no calculation is selected)
     if ((column.type === 'progress' || column.title.toLowerCase().includes('%') || (column.unit === '%' && column.type === 'number')) && summaryType === 'none') {
+      const isHistory = group.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('historico');
       const avg = numericValues.length > 0 ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length : 0;
       return (
         <Popover>
           <PopoverTrigger asChild>
             <div className="w-full px-2 flex flex-col gap-1 items-center cursor-pointer hover:bg-slate-200/50 transition-colors py-1 group/summary">
-              <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner w-3/4">
-                <div className={cn("h-full transition-all", avg >= 100 ? "bg-green-500" : "bg-blue-500")} style={{ width: `${Math.min(avg, 100)}%` }} />
-              </div>
-              <span className="text-[10px] font-bold text-slate-500">{new Intl.NumberFormat('pt-BR').format(avg)}%</span>
+              {!isHistory && (
+                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner w-3/4">
+                  <div className={cn("h-full transition-all", avg >= 100 ? "bg-green-500" : "bg-blue-500")} style={{ width: `${Math.min(avg, 100)}%` }} />
+                </div>
+              )}
+              <span className="text-[10px] font-bold text-slate-500">{new Intl.NumberFormat('pt-BR').format(avg)}{isHistory ? '' : '%'}</span>
             </div>
           </PopoverTrigger>
           {renderSummarySettings(group, column, summaryType)}
@@ -171,6 +181,7 @@ export default function TableView({
       default: result = 0;
     }
 
+    const isHistory = group.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('historico');
     const formatted = new Intl.NumberFormat('pt-BR').format(result as number);
     const labelMap: any = { sum: 'Total', avg: 'Média', count: 'Contagem', min: 'Mín.', max: 'Máx.', none: 'Cálculo' };
     
@@ -180,15 +191,15 @@ export default function TableView({
           <div className="flex flex-col items-center justify-center -space-y-0.5 w-full h-full cursor-pointer hover:bg-slate-200/50 transition-colors py-1 group/summary min-h-[44px]">
              {summaryType !== 'none' ? (
                 <>
-                  <span className="text-[12px] text-[#323338] font-bold">
-                    {column.unit === 'R$' ? `${formatted} R$` : column.unit === '%' ? `${formatted}%` : formatted}
+                  <span className={cn("text-[12px] font-bold", isHistory ? "text-white" : "text-[#323338]")}>
+                    {column.unit === 'R$' ? `${formatted} R$` : column.unit === '%' ? `${formatted}${isHistory ? '' : '%'}` : formatted}
                   </span>
-                  <span className="text-[9px] uppercase text-muted-foreground font-semibold">{labelMap[summaryType]}</span>
+                  <span className={cn("text-[9px] uppercase font-semibold", isHistory ? "text-slate-400" : "text-muted-foreground")}>{labelMap[summaryType]}</span>
                 </>
              ) : (
                 <div className="opacity-40 group-hover/summary:opacity-100 transition-opacity">
-                   <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                   <span className="text-[9px] uppercase text-muted-foreground font-semibold block">Cálculo</span>
+                   <ChevronDown className={cn("w-3.5 h-3.5", isHistory ? "text-white" : "text-slate-400")} />
+                   <span className={cn("text-[9px] uppercase font-semibold block", isHistory ? "text-slate-400" : "text-muted-foreground")}>Cálculo</span>
                 </div>
              )}
           </div>
@@ -277,7 +288,8 @@ export default function TableView({
     );
   };
 
-  const renderCell = (task: Task, column: BoardColumn) => {
+  const renderCell = (task: Task, column: BoardColumn, group?: TaskGroup) => {
+    const isHistory = group && group.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('historico');
     const value = task.columnValues[column.id];
     const isEditing = editingCell?.taskId === task.id && editingCell?.colId === column.id;
 
@@ -290,7 +302,7 @@ export default function TableView({
       );
     }
 
-    switch (column.type) {
+    switch (column.type as any) {
       case 'status':
         return (
           <div className="h-full w-full group/status">
@@ -523,7 +535,7 @@ export default function TableView({
         const numValue = typeof value === 'number' ? value : parseFloat(String(value));
         const isInvalid = isNaN(numValue) || value === null;
         return <div className="w-full h-full flex items-center justify-center cursor-text hover:bg-slate-50/50" onClick={e => { e.stopPropagation(); setEditValue(task.columnValues[column.id] || ''); setEditingCell({taskId: task.id, colId: column.id}); }}>
-          {isInvalid ? '—' : `${new Intl.NumberFormat('pt-BR').format(numValue)}${column.unit === 'R$' ? ' R$' : column.unit === '%' ? '%' : ''}`}
+          {isInvalid ? '—' : `${new Intl.NumberFormat('pt-BR').format(numValue)}${column.unit === 'R$' ? ' R$' : column.unit === '%' ? (isHistory ? '' : '%') : ''}`}
         </div>;
       case 'formula':
         const formulaResult = column.formulaExpr ? evaluateFormula(column.formulaExpr, task, board.columns) : '';
@@ -532,13 +544,14 @@ export default function TableView({
         return (
           <div className="w-full h-full flex items-center justify-center bg-blue-50/20 text-blue-700 font-medium" onClick={e => e.stopPropagation()}>
             {showAsNum 
-              ? `${new Intl.NumberFormat('pt-BR').format(numResult)}${column.unit === 'R$' ? ' R$' : column.unit === '%' ? '%' : ''}` 
+              ? `${new Intl.NumberFormat('pt-BR').format(numResult)}${column.unit === 'R$' ? ' R$' : column.unit === '%' ? (isHistory ? '' : '%') : ''}` 
               : String(formulaResult || '')}
           </div>
         );
       default:
         if (isEditing) {
-          const isNumeric = column.type === 'number' || column.title.toLowerCase().includes('%') || column.type === 'progress';
+          const colType = column.type as string; // Avoid narrowing error in isNumeric
+          const isNumeric = colType === 'number' || column.title.toLowerCase().includes('%') || colType === 'progress';
           return (
             <input 
               ref={colInputRef} 
@@ -561,11 +574,17 @@ export default function TableView({
             />
           );
         }
-        const progress = (value as number) || 0;
-        if (column.type === 'progress' || column.title.toLowerCase().includes('%')) {
+        const progressVal = (value as number) || 0;
+        const columnType = column.type as string;
+        if (columnType === 'progress' || column.title.toLowerCase().includes('%')) {
+           if (isHistory) {
+             return <div className="w-full h-full px-4 truncate text-[12px] flex items-center justify-center cursor-text hover:bg-slate-50/50 font-bold text-slate-700" onClick={e => { e.stopPropagation(); setEditValue(value || 0); setEditingCell({taskId: task.id, colId: column.id}); }}>
+               {new Intl.NumberFormat('pt-BR').format(progressVal)}
+             </div>;
+           }
            return <div className="w-full h-full px-3 flex flex-col justify-center gap-1 cursor-pointer hover:bg-slate-50 transition-colors" onClick={e => { e.stopPropagation(); setEditValue(value || 0); setEditingCell({taskId: task.id, colId: column.id}); }}>
-             <div className="flex justify-between text-[10px] text-muted-foreground font-bold"><span>{progress}%</span></div>
-             <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner"><div className={cn("h-full transition-all", progress >= 100 ? "bg-green-500" : "bg-blue-500")} style={{ width: `${progress}%` }} /></div>
+             <div className="flex justify-between text-[10px] text-muted-foreground font-bold"><span>{progressVal}%</span></div>
+             <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner"><div className={cn("h-full transition-all", progressVal >= 100 ? "bg-green-500" : "bg-blue-500")} style={{ width: `${progressVal}%` }} /></div>
            </div>;
         }
         return <div className="w-full h-full px-4 truncate text-[12px] flex items-center cursor-text hover:bg-slate-50/50" onClick={e => { e.stopPropagation(); setEditValue(value || ''); setEditingCell({taskId: task.id, colId: column.id}); }}>{String(value || '')}</div>;
@@ -578,16 +597,29 @@ export default function TableView({
         {displayGroups.map((group) => {
           const collapsed = collapsedGroups.has(group.id);
           const color = groupColorHex[group.color];
+          const isHistoryGroup = group.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('historico');
+
           return (
             <div key={group.id} className="mb-10 last:mb-20">
-              <div className={cn("flex items-stretch bg-white border-y border-r border-[#e6e9ef] mb-1 sticky left-0 group min-h-[52px]", collapsed ? "border-l-[6px]" : "border-none shadow-sm")} style={collapsed ? { borderLeftColor: color } : {}}>
-                <div className="w-10 flex items-center justify-center shrink-0 border-r border-[#e6e9ef]">
-                  <button onClick={() => onToggleGroup(group.id)} className="p-1 hover:bg-black/5 rounded transition-colors">
-                    <ChevronDown className={cn("w-5 h-5 transition-transform text-[#676879]", collapsed && "-rotate-90")} />
+              <div 
+                className={cn(
+                  "flex items-stretch mb-1 sticky left-0 group min-h-[52px] border-y transition-all", 
+                  isHistoryGroup 
+                    ? "bg-[#323338] text-white border-slate-700 shadow-lg z-20 border-l-[6px] border-l-amber-500" 
+                    : cn("bg-white border-r border-[#e6e9ef] shadow-sm", collapsed ? "border-l-[6px]" : "border-none")
+                )} 
+                style={(!isHistoryGroup && collapsed) ? { borderLeftColor: color } : {}}
+              >
+                <div className={cn("w-10 flex items-center justify-center shrink-0 border-r", isHistoryGroup ? "border-white/10" : "border-[#e6e9ef]")}>
+                  <button onClick={() => onToggleGroup(group.id)} className={cn("p-1 rounded transition-colors", isHistoryGroup ? "hover:bg-white/10" : "hover:bg-black/5")}>
+                    <ChevronDown className={cn("w-5 h-5 transition-transform", isHistoryGroup ? "text-amber-400" : "text-[#676879]", collapsed && "-rotate-90")} />
                   </button>
                 </div>
                 <div 
-                  className="flex-[1.5] min-w-[240px] flex flex-col justify-center px-4 border-r border-[#e6e9ef] min-h-[52px] cursor-pointer hover:bg-slate-50/50 select-none" 
+                  className={cn(
+                    "flex-[1.5] min-w-[240px] flex flex-col justify-center px-4 border-r min-h-[52px] cursor-pointer select-none", 
+                    isHistoryGroup ? "border-white/10 hover:bg-white/5 text-white" : "border-[#e6e9ef] hover:bg-slate-50/50"
+                  )} 
                   onDoubleClick={() => { 
                     setEditValue(group.title); 
                     setEditingGroup(group.id); 
@@ -597,7 +629,7 @@ export default function TableView({
                     {editingGroup === group.id ? (
                       <input 
                         ref={groupInputRef}
-                        className="text-[18px] font-bold outline-none border-b-2 border-blue-500 w-full bg-white p-0 m-0 leading-tight" 
+                        className={cn("text-[18px] font-bold outline-none border-b-2 w-full p-0 m-0 leading-tight", isHistoryGroup ? "bg-slate-800 border-amber-500 text-white" : "bg-white border-blue-500")} 
                         value={editValue} 
                         onChange={e => setEditValue(e.target.value)} 
                         onBlur={() => { 
@@ -617,8 +649,8 @@ export default function TableView({
                       />
                     ) : (
                       <h2 
-                        className="text-[18px] font-bold truncate leading-tight tracking-tight hover:text-blue-600 transition-colors" 
-                        style={!searchTerm ? { color } : {}} 
+                        className={cn("text-[18px] font-bold truncate leading-tight tracking-tight transition-colors", isHistoryGroup ? "text-amber-500" : "hover:text-blue-600")} 
+                        style={(!searchTerm && !isHistoryGroup) ? { color } : {}} 
                       >
                         {group.title}
                       </h2>
@@ -627,8 +659,8 @@ export default function TableView({
                     <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-2">
                        <DropdownMenu>
                          <DropdownMenuTrigger asChild>
-                           <button className="p-1 hover:bg-black/5 rounded transition-colors" onClick={e => e.stopPropagation()}>
-                             <MoreHorizontal className="w-5 h-5 text-slate-400" />
+                           <button className={cn("p-1 rounded transition-colors", isHistoryGroup ? "hover:bg-white/10" : "hover:bg-black/5")} onClick={e => e.stopPropagation()}>
+                             <MoreHorizontal className={cn("w-5 h-5", isHistoryGroup ? "text-white/60" : "text-slate-400")} />
                            </button>
                          </DropdownMenuTrigger>
                          <DropdownMenuContent align="end" className="w-48 bg-white border border-slate-100 shadow-xl rounded-lg p-1 z-[110]">
@@ -652,14 +684,14 @@ export default function TableView({
                        </DropdownMenu>
                     </div>
                   </div>
-                  <span className="text-[11px] text-muted-foreground font-semibold flex items-center gap-1"><Info className="w-3 h-3" /> {group.tasks.length} elemento{group.tasks.length !== 1 ? 's' : ''}</span>
+                  <span className={cn("text-[11px] font-semibold flex items-center gap-1", isHistoryGroup ? "text-white/60" : "text-muted-foreground")}><Info className="w-3 h-3" /> {group.tasks.length} elemento{group.tasks.length !== 1 ? 's' : ''}</span>
                 </div>
                 {collapsed && board.columns.map(col => (
-                  <div key={col.id} className="border-r border-[#e6e9ef] flex items-center justify-center shrink-0 bg-[#FBFCFD]" style={{ width: col.width || 140, minWidth: col.width || 140 }}>
+                  <div key={col.id} className={cn("border-r flex items-center justify-center shrink-0 transition-colors", isHistoryGroup ? "bg-[#2a2b2f] border-white/10 text-white" : "border-[#e6e9ef] bg-[#FBFCFD]")} style={{ width: col.width || 140, minWidth: col.width || 140 }}>
                     {calculateSummary(group, col)}
                   </div>
                 ))}
-                {collapsed && <div className="flex-1 bg-[#FBFCFD]" />}
+                {collapsed && <div className={cn("flex-1", isHistoryGroup ? "bg-[#2a2b2f]" : "bg-[#FBFCFD]")} />}
               </div>
 
               {!collapsed && (
@@ -844,7 +876,7 @@ export default function TableView({
                            </span>
                         )}
                       </div>
-                      {board.columns.map(col => (<div key={col.id} className="border-r border-b border-[#e6e9ef] flex items-center justify-center transition-colors focus-within:ring-2 focus-within:ring-blue-400 focus-within:z-20 px-6 whitespace-nowrap overflow-hidden bg-white h-10 text-[13px] hover:bg-[#f0f4ff] transition-colors">{renderCell(task, col)}</div>))}
+                      {board.columns.map(col => (<div key={col.id} className="border-r border-b border-[#e6e9ef] flex items-center justify-center transition-colors focus-within:ring-2 focus-within:ring-blue-400 focus-within:z-20 px-6 whitespace-nowrap overflow-hidden bg-white h-10 text-[13px] hover:bg-[#f0f4ff] transition-colors">{renderCell(task, col, group)}</div>))}
                       <div className="border-b border-[#e6e9ef] flex items-center justify-end px-4 gap-2 transition-colors bg-white h-10 hover:bg-[#f0f4ff]">
                         <div className="flex items-center gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
                           <Copy className="w-3.5 h-3.5 text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => onDuplicateTask(task.id)} />
