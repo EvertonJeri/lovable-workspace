@@ -164,7 +164,7 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
         }
 
         if (isDuplicate) {
-          toast.info(`O grupo "${groupTitle}" já existe no projeto "${targetBoard.title}". Pulando...`);
+          toast.warning(`⚠️ Grupo duplicado! O grupo "${groupTitle}" já existe no projeto "${targetBoard.title}". Não será criado novamente.`, { duration: 6000 });
           continue;
         }
 
