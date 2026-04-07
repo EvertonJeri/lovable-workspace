@@ -48,6 +48,7 @@ interface BoardHeaderProps {
   totalGroups: number;
   onCollapseAll: () => void;
   onExpandAll: () => void;
+  teamMembers?: { id: string, name: string }[];
 }
 
 
@@ -76,7 +77,8 @@ export default function BoardHeader({
   collapsedCount,
   totalGroups,
   onCollapseAll,
-  onExpandAll
+  onExpandAll,
+  teamMembers = []
 }: BoardHeaderProps) {
   const handleNotImplemented = (feature: string) => {
     alert(`${feature} em desenvolvimento!`);
@@ -97,23 +99,32 @@ export default function BoardHeader({
     const peopleMap = new Map<string, { id: string, name: string, avatar?: string }>();
     if (!board || !board.groups) return [];
     
+    // Nomes permitidos (da aba Equipe)
+    const allowedNames = teamMembers.map(m => m.name);
+
     board.groups.forEach(g => {
       g.tasks.forEach(t => {
         Object.values(t.columnValues).forEach(val => {
           if (Array.isArray(val)) {
             val.forEach(p => {
               if (p && typeof p === 'object' && 'id' in p && 'name' in p) {
-                peopleMap.set(p.id as string, p as any);
+                const person = p as any;
+                if (allowedNames.length === 0 || allowedNames.includes(person.name)) {
+                  peopleMap.set(person.id as string, person);
+                }
               }
             });
           } else if (val && typeof val === 'object' && 'id' in val && 'name' in val) {
-            peopleMap.set(val.id as string, val as any);
+            const person = val as any;
+            if (allowedNames.length === 0 || allowedNames.includes(person.name)) {
+              peopleMap.set(person.id as string, person);
+            }
           }
         });
       });
     });
     return Array.from(peopleMap.values());
-  }, [board]);
+  }, [board, teamMembers]);
 
   // Quick Filters Logic
   const categories = useMemo(() => {
@@ -124,8 +135,17 @@ export default function BoardHeader({
     ];
 
     board.columns.forEach(col => {
-      if (['status', 'priority', 'text', 'number'].includes(col.type)) {
-        cats.push({ id: col.id, label: col.title, values: {} });
+      if (['status', 'priority', 'text', 'number', 'person'].includes(col.type)) {
+        const cat = { id: col.id, label: col.title, values: {} as Record<string, number> };
+        
+        // Se for coluna de pessoa, pré-estabelece quem está na equipe
+        if (col.type === 'person' && teamMembers.length > 0) {
+          teamMembers.forEach(m => {
+            cat.values[m.name] = 0;
+          });
+        }
+        
+        cats.push(cat);
       }
     });
 
@@ -147,16 +167,17 @@ export default function BoardHeader({
           } else if (col.type === 'priority') {
             displayVal = PRIORITY_LABELS[val as any] || 'Média';
           } else if (col.type === 'person') {
-            // Persons are arrays
+            const names = teamMembers?.map(m => m.name) || [];
             if (Array.isArray(val)) {
               val.forEach(p => {
-                if (p && p.name) {
+                if (p && p.name && (names.length === 0 || names.includes(p.name))) {
                   cat.values[p.name] = (cat.values[p.name] || 0) + 1;
                 }
               });
               return;
             } else if (val && typeof val === 'object' && 'name' in val) {
-              displayVal = (val as any).name;
+              const nm = (val as any).name;
+              if (names.length === 0 || names.includes(nm)) displayVal = nm;
             } else {
               return;
             }

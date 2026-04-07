@@ -45,7 +45,9 @@ export default function Index() {
   }, [boards, activeBoardId]);
 
   const currentFilter = useMemo(() => {
-    return activeBoardId ? (boardFilters[activeBoardId] || { searchTerm: '', activeFilters: {} }) : { searchTerm: '', activeFilters: {} };
+    // Garantimos que sempre pegamos o filtro correto, inclusive se o activeBoardId estiver em transição
+    const key = activeBoardId || 'default';
+    return boardFilters[key] || { searchTerm: '', activeFilters: {} };
   }, [activeBoardId, boardFilters]);
 
   const { searchTerm, activeFilters } = currentFilter;
@@ -742,7 +744,8 @@ export default function Index() {
   }, []);
 
   const onSearchChange = useCallback((value: string) => {
-    setBoardFilters(prev => ({ ...prev, [activeBoardId]: { ...(prev[activeBoardId] || { searchTerm: '', activeFilters: {} }), searchTerm: value } }));
+    const key = activeBoardId || 'default';
+    setBoardFilters(prev => ({ ...prev, [key]: { ...(prev[key] || { searchTerm: '', activeFilters: {} }), searchTerm: value } }));
   }, [activeBoardId]);
 
   const onFilterChange = useCallback((filters: Record<string, string[]>) => {
@@ -767,11 +770,14 @@ export default function Index() {
   }, []);
 
   const filteredBoard = useMemo(() => {
-    if (!activeBoard) return activeBoard;
+    if (!activeBoard) return null;
 
-    // Se não houver busca nem filtros, retorna o quadro original filtrando apenas arquivados
-    const noActiveFilters = !searchTerm && Object.values(activeFilters).every(arr => arr.length === 0);
-    if (noActiveFilters) {
+    const s = (searchTerm || "").toLowerCase().trim();
+    const isSearching = s.length > 0;
+    const isFiltering = Object.values(activeFilters).some(v => v && v.length > 0);
+
+    // 1. Caso base: sem filtros ativos
+    if (!isSearching && !isFiltering) {
       return {
         ...activeBoard,
         groups: activeBoard.groups.filter(g => !g.archived).map(g => ({
@@ -781,67 +787,65 @@ export default function Index() {
       };
     }
 
-    return {
-      ...activeBoard,
-      groups: activeBoard.groups.filter(g => !g.archived).map(group => ({
-        ...group,
-        tasks: group.tasks.filter(task => {
-          if (task.archived) return false;
+    // 2. Aplicar lógica de filtragem
+    const processedGroups = activeBoard.groups.filter(g => !g.archived).map(group => {
+      const gTitle = group.title.toLowerCase();
+      const groupMatchesSearch = isSearching && gTitle.includes(s);
+      
+      const filteredTasks = group.tasks.filter(task => {
+        if (task.archived) return false;
 
-          // 1. Busca por texto (Nome da tarefa, nome do grupo ou valores das colunas)
-          const matchesSearch = !searchTerm || 
-            task.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            group.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            Object.values(task.columnValues).some(v => String(v).toLowerCase().includes(searchTerm.toLowerCase()));
-          
-          if (!matchesSearch) return false;
+        // A. Validar Texto de Busca (MATCH GLOBAL)
+        let passSearch = !isSearching || groupMatchesSearch || task.name.toLowerCase().includes(s);
+        
+        // Se ainda não deu match e temos busca, procuramos nas colunas
+        if (!passSearch && isSearching) {
+          passSearch = Object.values(task.columnValues).some(v => String(v).toLowerCase().includes(s));
+        }
 
-          // 2. Filtros de Categorias (Lógica: AND entre categorias, OR dentro da categoria)
-          for (const [catId, selectedValues] of Object.entries(activeFilters)) {
-            if (!selectedValues || selectedValues.length === 0) continue;
+        if (!passSearch) return false;
 
-            let taskMatchesCategory = false;
-
+        // B. Validar Categorias
+        if (isFiltering) {
+          for (const [catId, selected] of Object.entries(activeFilters)) {
+            if (!selected || selected.length === 0) continue;
+            
+            let passCat = false;
             if (catId === 'group') {
-              // Filtro por nome do grupo
-              taskMatchesCategory = selectedValues.includes(group.title);
+              passCat = selected.includes(group.title);
             } else if (catId === 'name') {
-              // Filtro por nome da tarefa
-              taskMatchesCategory = selectedValues.includes(task.name);
-            } else if (catId === 'person') {
-              // Filtro por pessoas (val pode ser array de objetos Person)
-              const persons = Object.values(task.columnValues).find(val => 
-                Array.isArray(val) && val.some(p => p && p.name)
-              ) as any[];
-              
-              if (persons && Array.isArray(persons)) {
-                taskMatchesCategory = persons.some(p => selectedValues.includes(p.name));
-              }
+              passCat = selected.includes(task.name);
+            } else if (catId === 'person' || catId.includes('assignee')) {
+              const personsNames: string[] = [];
+              Object.values(task.columnValues).forEach(val => {
+                if (Array.isArray(val)) val.forEach(p => p?.name && personsNames.push(p.name));
+                else if (val && typeof val === 'object' && 'name' in val) personsNames.push((val as any).name);
+              });
+              passCat = personsNames.some(nm => selected.includes(nm));
             } else {
-              // Filtro por colunas dinâmicas (Status, Prioridade, etc)
               const val = task.columnValues[catId];
               const col = activeBoard.columns.find(c => c.id === catId);
-              let displayVal = 'Sem valor';
-              
+              let dispVal = 'Sem valor';
               if (val !== undefined && val !== null) {
-                if (col?.type === 'status') {
-                  displayVal = STATUS_LABELS[val as any] || 'Não iniciado';
-                } else if (col?.type === 'priority') {
-                  displayVal = PRIORITY_LABELS[val as any] || 'Média';
-                } else {
-                  displayVal = String(val);
-                }
+                if (col?.type === 'status') dispVal = STATUS_LABELS[val as any] || 'Não iniciado';
+                else if (col?.type === 'priority') dispVal = PRIORITY_LABELS[val as any] || 'Média';
+                else dispVal = String(val);
               }
-              
-              taskMatchesCategory = selectedValues.includes(displayVal);
+              passCat = selected.includes(dispVal);
             }
-
-            if (!taskMatchesCategory) return false;
+            if (!passCat) return false;
           }
+        }
+        return true;
+      });
 
-          return true;
-        })
-      })).filter(group => group.tasks.length > 0 || Object.keys(activeFilters).every(k => !activeFilters[k] || activeFilters[k].length === 0))
+      return { ...group, tasks: filteredTasks };
+    });
+
+    // 3. Resultado Final
+    return {
+      ...activeBoard,
+      groups: processedGroups.filter(g => g.tasks.length > 0 || (isSearching && g.title.toLowerCase().includes(s)))
     };
   }, [activeBoard, searchTerm, activeFilters]);
 
@@ -903,6 +907,7 @@ export default function Index() {
               totalGroups={activeBoard?.groups.length || 0}
               onCollapseAll={handleCollapseAll}
               onExpandAll={handleExpandAll}
+              teamMembers={teamMembers}
             />
 
             {viewMode === 'table' && filteredBoard && (
