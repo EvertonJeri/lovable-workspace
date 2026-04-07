@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle, 
-  Briefcase, Activity, Target, Zap
+  Briefcase, Activity, Target, Zap, History
 } from 'lucide-react';
 
 interface ExecDashboardProps {
@@ -40,6 +40,7 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       const semana03 = parseFloat(String(val('semana03', ['sem03', 's3']))) || 0;
       const semana04 = parseFloat(String(val('semana04', ['sem04', 's4']))) || 0;
       const semana05 = parseFloat(String(val('semana05', ['sem05', 's5']))) || 0;
+      const mesAnterior = parseFloat(String(val('mesAnterior', ['Mês anterior', 'Mês Anterior', 'Mês ant', 'Mes Anterior']))) || 0;
 
       return {
         id: t.id,
@@ -54,6 +55,7 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
         semana03,
         semana04,
         semana05,
+        mesAnterior,
         status: String(val('status', ['status'])) || 'default'
       };
     }));
@@ -67,9 +69,7 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
     uniqueProjects,
     totalValueByWeek,
     conclusaoGeral,
-    projetosEmRisco,
-    topPerformer,
-    velocidadeSemanal,
+    valueMesAnterior,
     groupSummaries,
     setorRanking,
     criticalItems
@@ -113,7 +113,15 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       valor: val
     }));
 
-    // 4. Group Summaries & Projetos em Risco
+    // 3.5 Mês Anterior
+    let valueMesAnterior = 0;
+    activeItems.forEach(item => {
+      const p = item.mesAnterior || 0;
+      const b = item.orado || 0;
+      if (p > 0 && b > 0) valueMesAnterior += (p * b) / 100;
+    });
+
+    // 4. Group Summaries
     const gs: Record<string, any> = {};
     activeItems.forEach(i => {
       if (!gs[i.groupId]) gs[i.groupId] = { id: i.groupId, name: i.groupName, percentSum: 0, oradoSum: 0, count: 0, pendentes: 0 };
@@ -123,14 +131,12 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       if (i.activePercentual < 100) gs[i.groupId].pendentes += 1;
     });
 
-    let riskCount = 0;
     const groupSummaries = Object.values(gs).map(g => {
       const avgPercent = g.count > 0 ? g.percentSum / g.count : 0;
-      if (avgPercent < 50 && g.oradoSum > 5000) riskCount += 1;
       return { ...g, avgPercent };
     });
     
-    // 5. Ranking de Setores & Top Performer
+    // 5. Ranking de Setores
     const ss: Record<string, any> = {};
     activeItems.forEach(i => {
       const setor = i.subitemName.trim();
@@ -143,15 +149,6 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       name: s.name,
       avgPercent: s.count > 0 ? s.percentSum / s.count : 0
     })).sort((a, b) => b.avgPercent - a.avgPercent);
-    const topPerformer = setorRanking.length > 0 ? setorRanking[0].name : '-';
-
-    // 6. Velocidade Semanal (Semana 5 vs Semana 1 em Produção de Valor)
-    const vS1 = valueByWeek.semana01;
-    const vS5 = valueByWeek.semana05;
-    let velocidadeSemanal = 0;
-    if (vS1 > 0) {
-      velocidadeSemanal = ((vS5 - vS1) / Math.abs(vS1)) * 100;
-    }
 
     // 7. Critical Items
     const criticalItems = [...activeItems]
@@ -161,7 +158,7 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       .map(i => ({ ...i, percentual: i.activePercentual }));
 
     return {
-      uniqueProjects, totalValueByWeek, conclusaoGeral, projetosEmRisco: riskCount, topPerformer, velocidadeSemanal, groupSummaries, setorRanking, criticalItems
+      uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, setorRanking, criticalItems
     };
   }, [workItems, selectedWeek]);
 
@@ -170,6 +167,10 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
     : totalValueByWeek.filter(tw => tw.key === selectedWeek);
 
   const totalFilteredValue = filteredChartData.reduce((acc, curr) => acc + curr.valor, 0);
+
+  const comparativo = valueMesAnterior > 0 
+    ? ((totalFilteredValue - valueMesAnterior) / Math.abs(valueMesAnterior)) * 100 
+    : 0;
 
   const formatBRL = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   const formatCompactBRL = (val: number) => {
@@ -201,7 +202,7 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <KPICard title="Projetos Ativos" value={uniqueProjects} icon={<Briefcase size={20} />} />
         
         <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
@@ -219,39 +220,31 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
 
         <KPICard 
           title="Valor Produzido" 
-          value={formatCompactBRL(totalFilteredValue)} 
+          value={formatBRL(totalFilteredValue)} 
           subtitle={selectedWeek === 'all' ? 'Total 5 Semanas' : `Total ${selectedWeek.replace('semana0', 'Semana ')}`}
           icon={<Activity size={20} className="text-emerald-500"/>} 
         />
         
         <KPICard 
-          title="Projetos em Risco" 
-          value={projetosEmRisco} 
-          subtitle="<50% progresso & >5k budget"
-          icon={<AlertTriangle size={20} className="text-red-500" />} 
-          isWarning={projetosEmRisco > 0}
-        />
-        
-        <KPICard 
-          title="Top Performer" 
-          value={topPerformer} 
-          subtitle="Setor liderando concl."
-          icon={<CheckCircle size={20} className="text-violet-500" />} 
+          title="Mês Anterior" 
+          value={formatBRL(valueMesAnterior)} 
+          subtitle="Valor Produzido (Mês Ant.)"
+          icon={<History size={20} className="text-slate-500" />} 
         />
 
         <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-slate-500 pb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Velocidade Semanal</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Comparativo Mês</span>
             <Zap size={20} className="text-amber-500" />
           </div>
           <div className="flex items-end gap-2">
-            <div className={`text-2xl font-bold ${velocidadeSemanal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-              {velocidadeSemanal > 0 ? '+' : ''}{velocidadeSemanal.toFixed(1)}%
+            <div className={`text-2xl font-bold ${comparativo >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {comparativo > 0 ? '+' : ''}{comparativo.toFixed(1)}%
             </div>
           </div>
           <div className="text-xs text-slate-400 mt-1 flex items-center">
-             {velocidadeSemanal >= 0 ? <TrendingUp size={12} className="text-emerald-500 mr-1"/> : <TrendingDown size={12} className="text-red-500 mr-1"/>}
-             vs Semana 1
+             {comparativo >= 0 ? <TrendingUp size={12} className="text-emerald-500 mr-1"/> : <TrendingDown size={12} className="text-red-500 mr-1"/>}
+             vs Mês Anterior
           </div>
         </div>
       </div>

@@ -49,6 +49,7 @@ interface TableViewProps {
   board: Board; onTaskClick: (task: Task) => void; onAddTask: (groupId?: string) => void;
   onAddGroup: () => void; onRenameGroup: (groupId: string, title: string) => void;
   onDeleteGroup: (groupId: string) => void; onArchiveGroup: (groupId: string) => void;
+  onDuplicateGroup: (groupId: string) => void;
   onAddColumn: (type: ColumnType, title: string) => void; onUpdateColumn: (columnId: string, updates: Partial<BoardColumn>) => void;
   onRemoveColumn: (columnId: string) => void; onMoveColumn?: (columnId: string, direction: 'left' | 'right') => void;
   onDeleteTask: (taskId: string) => void;
@@ -59,7 +60,7 @@ interface TableViewProps {
 }
 
 export default function TableView({ 
-  board, onTaskClick, onAddTask, onAddGroup, onRenameGroup, onDeleteGroup, onArchiveGroup,
+  board, onTaskClick, onAddTask, onAddGroup, onRenameGroup, onDeleteGroup, onArchiveGroup, onDuplicateGroup,
   onAddColumn, onUpdateColumn, onRemoveColumn, onMoveColumn, onDeleteTask, onDuplicateTask,
   onArchiveTask, onUpdateTask, searchTerm, collapsedGroups, onToggleGroup,
   teamMembers = []
@@ -561,6 +562,9 @@ export default function TableView({
                          <DropdownMenuContent align="end" className="w-48 bg-white border border-slate-100 shadow-xl rounded-lg p-1 z-[110]">
                            <DropdownMenuItem className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold hover:bg-slate-50 rounded-md cursor-pointer text-slate-600" onClick={(e) => { e.stopPropagation(); setEditValue(group.title); setEditingGroup(group.id); }}>
                              <Pencil className="w-4 h-4" /> Renomear Grupo
+                           </DropdownMenuItem>
+                           <DropdownMenuItem className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold hover:bg-slate-50 rounded-md cursor-pointer text-slate-600" onClick={(e) => { e.stopPropagation(); onDuplicateGroup(group.id); }}>
+                             <Copy className="w-4 h-4" /> Duplicar Grupo
                            </DropdownMenuItem>
                            <DropdownMenuItem className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold hover:bg-slate-50 rounded-md cursor-pointer text-slate-600" onClick={(e) => { e.stopPropagation(); onArchiveGroup(group.id); }}>
                              <Archive className="w-4 h-4" /> Arquivar Grupo

@@ -14,6 +14,7 @@ import { CalendarIcon, LayoutGrid, Package, Construction, CheckCircle2, AlertCir
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
 
 interface GroupGeneratorProps {
   boards: Board[];
@@ -65,7 +66,9 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
   const [jobNumber, setJobNumber] = useState('JOB-1234');
   const [description, setDescription] = useState('');
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(new Date());
-  const [selectedBoardId, setSelectedBoardId] = useState<string>('');
+  const [selectedBoardIds, setSelectedBoardIds] = useState<string[]>([]);
+  const [isSelectOpen, setIsSelectOpen] = useState(false);
+  const [applyFactorPerBoard, setApplyFactorPerBoard] = useState<Record<string, boolean>>({});
 
   // Produção
   const [jobType, setJobType] = useState('JOB - Pequeno');
@@ -131,87 +134,89 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
       toast.error('Informe a descrição do JOB');
       return;
     }
-    if (!selectedBoardId) {
-      toast.error('Selecione o projeto de destino');
+    if (selectedBoardIds.length === 0) {
+      toast.error('Selecione ao menos um projeto de destino');
       return;
     }
 
     setIsGenerating(true);
     try {
-      const targetBoard = boards.find(b => b.id === selectedBoardId);
-      if (!targetBoard) throw new Error('Projeto não encontrado');
-
-      // Fetch live column data directly from Supabase to get real IDs
-      const { data: liveColumns } = await supabase
-        .from('board_columns')
-        .select('*')
-        .eq('board_id', selectedBoardId);
-      
-      // Use live columns if available AND non-empty, otherwise fallback to local board state
-      const allColumns = (liveColumns && liveColumns.length > 0)
-        ? liveColumns.map((c: any) => ({
-            id: c.id as string, 
-            type: c.type as string, 
-            title: c.title as string
-          }))
-        : targetBoard.columns.map(c => ({ id: c.id, type: c.type, title: c.title }));
-
-      console.log('[GroupGenerator] Columns found:', allColumns.map(c => `"${c.title}" (${c.type}) → ${c.id}`));
-
-      // TITLE-ONLY matching to avoid two number columns resolving to the same one
-      const findByTitle = (titles: string[]): string | undefined => {
-        return allColumns.find(c => 
-          titles.some(t => c.title.toLowerCase().trim() === t.toLowerCase().trim())
-        )?.id;
-      };
-
-      // Type-based matching (only used as fallback for unique types like status, date, timeline)
-      const findByType = (type: string): string | undefined => {
-        return allColumns.find(c => c.type === type)?.id;
-      };
-
-      // Map columns:
-      // - status/deliveryDate/timeline: match by title first, then by type (they are unique types)
-      // - budget/percentage: TITLE-ONLY match (both are 'number' type, must not collide)
-      const colIds = {
-        status:       findByTitle(['Status', 'Status Setor', 'Setor']) || findByType('status'),
-        deliveryDate: findByTitle(['Data de Entr.', 'Data de Entrega', 'Entrega', 'Data']) || findByType('date'),
-        budget:       findByTitle(['Orçamento Job', 'Orçado', 'Orçamento', 'Custo']),
-        percentage:   findByTitle(['%', 'Progresso', 'Percentual', 'Percentual (%)']),
-        timeline:     findByTitle(['Cronograma', 'Timeline', 'Prazo']) || findByType('timeline'),
-      };
-
-      console.log('[GroupGenerator] Mapped colIds:', JSON.stringify(colIds));
-
       const groupTitle = `${description} - ${jobNumber}`;
-      
-      const { data: newGroup, error: groupErr } = await supabase.from('task_groups').insert({
-        board_id: selectedBoardId,
-        title: groupTitle,
-        color: template === 'producao' ? 'orange' : 'teal'
-      }).select().single();
 
-      if (groupErr) throw groupErr;
+      for (const boardId of selectedBoardIds) {
+        const targetBoard = boards.find(b => b.id === boardId);
+        if (!targetBoard) {
+          console.warn(`[GroupGenerator] Board ${boardId} não encontrado.`);
+          continue;
+        }
 
-      const tasksToInsert: any[] = [];
-      const colValuesToInsert: any[] = [];
+        // Fetch live column data directly from Supabase to get real IDs
+        const { data: liveColumns } = await supabase
+          .from('board_columns')
+          .select('*')
+          .eq('board_id', boardId);
+        
+        // Use live columns if available AND non-empty, otherwise fallback to local board state
+        const allColumns = (liveColumns && liveColumns.length > 0)
+          ? liveColumns.map((c: any) => ({
+              id: c.id as string, 
+              type: c.type as string, 
+              title: c.title as string
+            }))
+          : targetBoard.columns.map(c => ({ id: c.id, type: c.type, title: c.title }));
 
-      if (template === 'producao') {
-        const baseMap = { ...MAPA_PORC[jobType] };
-        ITENS_PROD.forEach(it => { if (!(it in baseMap)) baseMap[it] = 0; });
+        console.log(`[GroupGenerator] Columns found for board ${boardId}:`, allColumns.map(c => `"${c.title}" (${c.type}) → ${c.id}`));
 
-        const percFinal = redistributeFromNa(baseMap, naSectors, receptorSectors);
-        const parseMoney = (s: string) => {
-          const cleaned = s.replace(/\s/g, '');
-          if (cleaned.includes(',') && cleaned.includes('.')) {
-            return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
-          }
-          return parseFloat(cleaned.replace(',', '.'));
+        // TITLE-ONLY matching to avoid two number columns resolving to the same one
+        const findByTitle = (titles: string[]): string | undefined => {
+          return allColumns.find(c => 
+            titles.some(t => c.title.toLowerCase().trim() === t.toLowerCase().trim())
+          )?.id;
         };
-        const totalBudgetVal = parseMoney(totalBudget) || 0;
-        const totalRedistribuivel = totalBudgetVal * (distributionFactor / 100);
 
-        console.log('[GroupGenerator] Budget:', { totalBudgetVal, distributionFactor, totalRedistribuivel });
+        // Type-based matching (only used as fallback for unique types like status, date, timeline)
+        const findByType = (type: string): string | undefined => {
+          return allColumns.find(c => c.type === type)?.id;
+        };
+
+        // Map columns:
+        const colIds = {
+          status:       findByTitle(['Status', 'Status Setor', 'Setor']) || findByType('status'),
+          deliveryDate: findByTitle(['Data de Entr.', 'Data de Entrega', 'Entrega', 'Data']) || findByType('date'),
+          budget:       findByTitle(['Orçamento Job', 'Orçado', 'Orçamento', 'Custo']),
+          percentage:   findByTitle(['%', 'Progresso', 'Percentual', 'Percentual (%)']),
+          timeline:     findByTitle(['Cronograma', 'Timeline', 'Prazo']) || findByType('timeline'),
+        };
+
+        console.log(`[GroupGenerator] Mapped colIds for board ${boardId}:`, JSON.stringify(colIds));
+
+        const { data: newGroup, error: groupErr } = await supabase.from('task_groups').insert({
+          board_id: boardId,
+          title: groupTitle,
+          color: template === 'producao' ? 'orange' : 'teal'
+        }).select().single();
+
+        if (groupErr) throw groupErr;
+
+        const tasksToInsert: any[] = [];
+        const colValuesToInsert: any[] = [];
+
+        if (template === 'producao') {
+          const baseMap = { ...MAPA_PORC[jobType] };
+          ITENS_PROD.forEach(it => { if (!(it in baseMap)) baseMap[it] = 0; });
+
+          const percFinal = redistributeFromNa(baseMap, naSectors, receptorSectors);
+          const parseMoney = (s: string) => {
+            const cleaned = s.replace(/\s/g, '');
+            if (cleaned.includes(',') && cleaned.includes('.')) {
+              return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
+            }
+            return parseFloat(cleaned.replace(',', '.'));
+          };
+          const totalBudgetVal = parseMoney(totalBudget) || 0;
+          const totalRedistribuivel = totalBudgetVal * (distributionFactor / 100);
+
+          console.log('[GroupGenerator] Budget:', { totalBudgetVal, distributionFactor, totalRedistribuivel });
 
         const taskIds: string[] = [];
         const taskBudgets: number[] = [];
@@ -246,7 +251,9 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
         });
 
         // Adjustment for rounding then add budget values
-        if (colIds.budget) {
+        const shouldApplyFactor = applyFactorPerBoard[boardId] !== false;
+        
+        if (colIds.budget && shouldApplyFactor) {
           const sumDistributed = taskBudgets.reduce((a, b) => a + b, 0);
           const diff = parseFloat((totalRedistribuivel - sumDistributed).toFixed(2));
           if (Math.abs(diff) >= 0.01) {
@@ -333,31 +340,33 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
         });
       }
 
-      // Final insertion WITH error handling
-      console.log('[GroupGenerator] Inserting', tasksToInsert.length, 'tasks and', colValuesToInsert.length, 'values');
-      
-      if (tasksToInsert.length > 0) {
-        const { error: taskErr } = await supabase.from('tasks').insert(tasksToInsert);
-        if (taskErr) {
-          console.error('[GroupGenerator] Tasks insert error:', taskErr);
-          throw new Error('Erro ao inserir tarefas: ' + taskErr.message);
-        }
+        // Final insertion WITH error handling
+        console.log(`[GroupGenerator] Inserting ${tasksToInsert.length} tasks and ${colValuesToInsert.length} values for board ${boardId}`);
         
-        if (colValuesToInsert.length > 0) {
-          console.log('[GroupGenerator] Sample values:', JSON.stringify(colValuesToInsert.slice(0, 5)));
-          const { error: valErr } = await supabase.from('task_values').insert(colValuesToInsert);
-          if (valErr) {
-            console.error('[GroupGenerator] Values insert error:', valErr);
-            toast.warning('Grupo criado, mas valores falharam: ' + valErr.message);
+        if (tasksToInsert.length > 0) {
+          const { error: taskErr } = await supabase.from('tasks').insert(tasksToInsert);
+          if (taskErr) {
+            console.error('[GroupGenerator] Tasks insert error:', taskErr);
+            throw new Error(`Erro ao inserir tarefas no projeto ${targetBoard.title}: ` + taskErr.message);
+          }
+          
+          if (colValuesToInsert.length > 0) {
+            const { error: valErr } = await supabase.from('task_values').insert(colValuesToInsert);
+            if (valErr) {
+              console.error('[GroupGenerator] Values insert error:', valErr);
+              toast.warning(`Valores falharam no projeto ${targetBoard.title}: ` + valErr.message);
+            }
           }
         }
-      }
+      } // Fim do loop de projetos
 
-      toast.success('Grupo gerado com sucesso no projeto selecionado!');
-      if (onGeneratorComplete) onGeneratorComplete(selectedBoardId);
+      toast.success('Grupos gerados com sucesso nos projetos selecionados!');
+      if (onGeneratorComplete && selectedBoardIds.length > 0) {
+        onGeneratorComplete(selectedBoardIds[0]); // Atualiza a tela com o primeiro projeto selecionado
+      }
     } catch (err: any) {
       console.error(err);
-      toast.error('Erro ao gerar grupo: ' + err.message);
+      toast.error('Erro ao gerar grupos: ' + err.message);
     } finally {
       setIsGenerating(false);
     }
@@ -442,17 +451,71 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="targetBoard">Projeto de Destino</Label>
-                <Select value={selectedBoardId} onValueChange={setSelectedBoardId}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Selecione o projeto" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {boards.map(b => (
-                      <SelectItem key={b.id} value={b.id}>{b.title}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="targetBoard">Projetos de Destino</Label>
+                <Popover open={isSelectOpen} onOpenChange={setIsSelectOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={isSelectOpen}
+                      className="w-full h-10 justify-between text-left font-normal truncate"
+                    >
+                      {selectedBoardIds.length > 0
+                        ? `${selectedBoardIds.length} projeto(s) selecionado(s)`
+                        : "Selecione os projetos"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-2" align="start">
+                    <ScrollArea className="h-48">
+                      <div className="space-y-1 p-1">
+                        {boards.map(b => (
+                          <div
+                            key={b.id}
+                            className="flex items-center space-x-2 py-1.5 px-2 hover:bg-slate-100 rounded-sm cursor-pointer"
+                            onClick={() => {
+                              setSelectedBoardIds(prev => 
+                                prev.includes(b.id) 
+                                  ? prev.filter(id => id !== b.id)
+                                  : [...prev, b.id]
+                              );
+                            }}
+                          >
+                            <Checkbox
+                              checked={selectedBoardIds.includes(b.id)}
+                              onCheckedChange={(checked) => {
+                                setSelectedBoardIds(prev =>
+                                  checked 
+                                    ? [...prev, b.id] 
+                                    : prev.filter(id => id !== b.id)
+                                );
+                              }}
+                            />
+                            <span className="text-sm border-0 bg-transparent flex-1 text-left select-none truncate">
+                              {b.title}
+                            </span>
+                            
+                            {selectedBoardIds.includes(b.id) && template === 'producao' && (
+                              <div 
+                                className="flex items-center gap-1.5 ml-auto pl-2 border-l"
+                                onClick={(e) => e.stopPropagation()}
+                                title="Aplicar Fator de Orçamento neste projeto?"
+                              >
+                                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                  {applyFactorPerBoard[b.id] !== false ? 'Com Valor' : 'Sem Valor'}
+                                </span>
+                                <Switch 
+                                  checked={applyFactorPerBoard[b.id] !== false}
+                                  onCheckedChange={(checked) => setApplyFactorPerBoard(prev => ({ ...prev, [b.id]: checked }))}
+                                  className="scale-75 data-[state=checked]:bg-blue-500"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 

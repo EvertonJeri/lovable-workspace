@@ -250,7 +250,6 @@ export default function Index() {
       toast.error('Erro ao salvar no servidor');
     }
   }, [activeBoardId]);
-
   const handleDeleteGroup = useCallback(async (groupId: string) => {
     if (activeBoard.groups.length <= 1) return;
     if (!confirm('Excluir grupo?')) return;
@@ -261,6 +260,57 @@ export default function Index() {
     ));
     await supabase.from('task_groups').delete().eq('id', groupId);
   }, [activeBoardId, activeBoard.groups.length]);
+
+  const handleDuplicateGroup = useCallback(async (groupId: string) => {
+    let targetBoardId = activeBoardId;
+    if (isSample(targetBoardId)) {
+      const result = await persistBoard(activeBoard);
+      if (!result) return;
+      targetBoardId = result.id;
+      setActiveBoardId(targetBoardId);
+    }
+
+    const groupToDup = activeBoard.groups.find(g => g.id === groupId);
+    if (!groupToDup) return;
+
+    const newGroup: TaskGroup = {
+      ...groupToDup,
+      id: crypto.randomUUID(),
+      title: `${groupToDup.title} (Cópia)`,
+      tasks: groupToDup.tasks.map(t => ({
+        ...t,
+        id: crypto.randomUUID()
+      }))
+    };
+
+    setBoards(prev => prev.map(board => 
+      board.id === targetBoardId || board.id === activeBoardId 
+        ? { 
+            ...board, 
+            groups: board.groups.flatMap(g => g.id === groupId ? [g, newGroup] : [g]) 
+          } 
+        : board
+    ));
+
+    const { data: nG } = await supabase.from('task_groups').insert({ 
+      id: newGroup.id, board_id: targetBoardId, title: newGroup.title, color: newGroup.color 
+    }).select().single();
+
+    if (nG) {
+      const tasksToInsert = newGroup.tasks.map(t => ({ id: t.id, group_id: nG.id, name: t.name, position: t.orderIndex }));
+      if (tasksToInsert.length > 0) {
+        await supabase.from('tasks').insert(tasksToInsert);
+        const valuesToInsert = newGroup.tasks.flatMap(t => 
+          Object.entries(t.columnValues)
+            .filter(([_, val]) => val !== undefined && val !== null)
+            .map(([colId, val]) => ({ task_id: t.id, column_id: colId, value: val }))
+        );
+        if (valuesToInsert.length > 0) {
+          await supabase.from('task_values').insert(valuesToInsert);
+        }
+      }
+    }
+  }, [activeBoardId, activeBoard]);
 
   const handleAddTask = useCallback(async (groupId?: string) => {
     let targetBoardId = activeBoardId;
@@ -726,6 +776,7 @@ export default function Index() {
               <TableView 
                 board={filteredBoard} onTaskClick={setSelectedTask} onAddTask={handleAddTask} onAddGroup={handleAddGroup}
                 onRenameGroup={handleRenameGroup} onDeleteGroup={handleDeleteGroup} onArchiveGroup={handleArchiveGroup}
+                onDuplicateGroup={handleDuplicateGroup}
                 onAddColumn={handleAddColumn} onUpdateColumn={handleUpdateColumn} onRemoveColumn={handleRemoveColumn}
                 onMoveColumn={handleMoveColumn}
                 onDeleteTask={handleDeleteTask} onDuplicateTask={handleDuplicateTask} onArchiveTask={handleArchiveTask}
