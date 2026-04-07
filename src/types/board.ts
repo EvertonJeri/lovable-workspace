@@ -58,6 +58,7 @@ export interface TaskGroup {
   tasks: Task[];
   collapsed?: boolean;
   archived?: boolean;
+  budget?: number;
 }
 
 

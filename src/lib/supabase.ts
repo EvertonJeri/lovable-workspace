@@ -39,7 +39,7 @@ export async function fetchBoards() {
           id: c.id, title: c.title, type: c.type, width: c.width, unit: c.unit, summaryType: c.summary_type, position: c.position, formulaExpr: c.formula_expr
         })),
         groups: (groups || []).map(g => ({
-          id: g.id, title: g.title, color: g.color, archived: !!g.is_archived, position: g.position || 0,
+          id: g.id, title: g.title, color: g.color, archived: !!g.is_archived, position: g.position || 0, budget: g.budget,
           tasks: (g.tasks || []).map((t: any) => ({
             id: t.id, name: t.name || '', groupId: g.id, orderIndex: t.position || 0, createdAt: t.created_at,
             columnValues: (t.task_values || []).reduce((acc: any, v: any) => ({ ...acc, [v.column_id]: v.value }), {})

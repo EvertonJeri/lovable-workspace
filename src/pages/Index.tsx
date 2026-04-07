@@ -165,6 +165,26 @@ export default function Index() {
       return;
     }
 
+    let finalTaskToSave = updated;
+    const targetGroup = activeBoard?.groups.find(g => g.id === updated.groupId);
+
+    if (targetGroup && targetGroup.budget && targetGroup.budget > 0) {
+      const orcadoCol = activeBoard.columns.find(c => c.unit === 'R$' || c.title.toLowerCase().includes('orç') || c.title.toLowerCase().includes('budg'));
+      const percentCol = activeBoard.columns.find(c => c.unit === '%' || c.type === 'progress' || c.title.toLowerCase().includes('%') || c.title.toLowerCase().includes('perc'));
+      
+      if (orcadoCol && percentCol) {
+         const perc = parseFloat(String(updated.columnValues[percentCol.id])) || 0;
+         const calculatedBudget = (perc / 100) * targetGroup.budget;
+         finalTaskToSave = {
+           ...updated,
+           columnValues: {
+             ...updated.columnValues,
+             [orcadoCol.id]: calculatedBudget
+           }
+         };
+      }
+    }
+
     setBoards((prev) =>
       prev.map((board) =>
         board.id === activeBoardId
@@ -172,21 +192,21 @@ export default function Index() {
               ...board,
               groups: board.groups.map((group) => ({
                 ...group,
-                tasks: group.tasks.map((t) => (t.id === updated.id ? updated : t)),
+                tasks: group.tasks.map((t) => (t.id === finalTaskToSave.id ? finalTaskToSave : t)),
               })),
             }
           : board
       )
     );
     
-    setSelectedTask(prev => prev && prev.id === updated.id ? updated : prev);
+    setSelectedTask(prev => prev && prev.id === finalTaskToSave.id ? finalTaskToSave : prev);
 
     try {
-      const promises = Object.entries(updated.columnValues).map(async ([colId, val]) => {
-        await supabase.from('task_values').upsert({ task_id: updated.id, column_id: colId, value: val });
+      const promises = Object.entries(finalTaskToSave.columnValues).map(async ([colId, val]) => {
+        await supabase.from('task_values').upsert({ task_id: finalTaskToSave.id, column_id: colId, value: val });
       });
       promises.push((async () => {
-        await supabase.from('tasks').update({ name: updated.name }).eq('id', updated.id);
+        await supabase.from('tasks').update({ name: finalTaskToSave.name }).eq('id', finalTaskToSave.id);
       })());
       await Promise.all(promises);
     } catch (err: any) {
@@ -260,6 +280,56 @@ export default function Index() {
     ));
     await supabase.from('task_groups').delete().eq('id', groupId);
   }, [activeBoardId, activeBoard.groups.length]);
+
+  const handleUpdateGroupBudget = useCallback(async (groupId: string, newBudget: number) => {
+    let targetBoardId = activeBoardId;
+    if (isSample(targetBoardId)) {
+      const result = await persistBoard(activeBoard);
+      if (!result) return;
+      targetBoardId = result.id;
+      setActiveBoardId(targetBoardId);
+    }
+
+    const board = boards.find(b => b.id === targetBoardId) || activeBoard;
+    const orcadoCol = board.columns.find(c => c.unit === 'R$' || c.title.toLowerCase().includes('orç') || c.title.toLowerCase().includes('budg'));
+    const percentCol = board.columns.find(c => c.unit === '%' || c.type === 'progress' || c.title.toLowerCase().includes('%') || c.title.toLowerCase().includes('perc'));
+
+    setBoards(prev => prev.map(b => {
+      if (b.id !== targetBoardId) return b;
+      return {
+        ...b,
+        groups: b.groups.map(g => {
+          if (g.id !== groupId) return g;
+          const updatedTasks = g.tasks.map(t => {
+            if (!orcadoCol || !percentCol) return t;
+            const perc = parseFloat(String(t.columnValues[percentCol.id])) || 0;
+            return {
+              ...t,
+              columnValues: {
+                ...t.columnValues,
+                [orcadoCol.id]: (perc / 100) * newBudget
+              }
+            };
+          });
+          return { ...g, budget: newBudget, tasks: updatedTasks };
+        })
+      };
+    }));
+
+    await supabase.from('task_groups').update({ budget: newBudget }).eq('id', groupId);
+
+    if (orcadoCol && percentCol) {
+       const group = board.groups.find(g => g.id === groupId);
+       if (group) {
+         const updates = group.tasks.map(t => {
+            const perc = parseFloat(String(t.columnValues[percentCol.id])) || 0;
+            return { task_id: t.id, column_id: orcadoCol.id, value: (perc / 100) * newBudget };
+         });
+         if (updates.length > 0) await supabase.from('task_values').upsert(updates);
+       }
+    }
+    toast.success('Orçamento do grupo aplicado e tarefas recalculadas!');
+  }, [activeBoardId, activeBoard, boards]);
 
   const handleDuplicateGroup = useCallback(async (groupId: string) => {
     let targetBoardId = activeBoardId;
@@ -776,7 +846,7 @@ export default function Index() {
               <TableView 
                 board={filteredBoard} onTaskClick={setSelectedTask} onAddTask={handleAddTask} onAddGroup={handleAddGroup}
                 onRenameGroup={handleRenameGroup} onDeleteGroup={handleDeleteGroup} onArchiveGroup={handleArchiveGroup}
-                onDuplicateGroup={handleDuplicateGroup}
+                onDuplicateGroup={handleDuplicateGroup} onUpdateGroupBudget={handleUpdateGroupBudget}
                 onAddColumn={handleAddColumn} onUpdateColumn={handleUpdateColumn} onRemoveColumn={handleRemoveColumn}
                 onMoveColumn={handleMoveColumn}
                 onDeleteTask={handleDeleteTask} onDuplicateTask={handleDuplicateTask} onArchiveTask={handleArchiveTask}

@@ -50,6 +50,7 @@ interface TableViewProps {
   onAddGroup: () => void; onRenameGroup: (groupId: string, title: string) => void;
   onDeleteGroup: (groupId: string) => void; onArchiveGroup: (groupId: string) => void;
   onDuplicateGroup: (groupId: string) => void;
+  onUpdateGroupBudget: (groupId: string, budget: number) => void;
   onAddColumn: (type: ColumnType, title: string) => void; onUpdateColumn: (columnId: string, updates: Partial<BoardColumn>) => void;
   onRemoveColumn: (columnId: string) => void; onMoveColumn?: (columnId: string, direction: 'left' | 'right') => void;
   onDeleteTask: (taskId: string) => void;
@@ -60,7 +61,7 @@ interface TableViewProps {
 }
 
 export default function TableView({ 
-  board, onTaskClick, onAddTask, onAddGroup, onRenameGroup, onDeleteGroup, onArchiveGroup, onDuplicateGroup,
+  board, onTaskClick, onAddTask, onAddGroup, onRenameGroup, onDeleteGroup, onArchiveGroup, onDuplicateGroup, onUpdateGroupBudget,
   onAddColumn, onUpdateColumn, onRemoveColumn, onMoveColumn, onDeleteTask, onDuplicateTask,
   onArchiveTask, onUpdateTask, searchTerm, collapsedGroups, onToggleGroup,
   teamMembers = []
@@ -215,6 +216,38 @@ export default function TableView({
                 ))}
               </div>
             </div>
+            {(column.unit === 'R$' || column.title.toLowerCase().includes('orç')) && (
+              <>
+                <DropdownMenuSeparator className="bg-slate-100" />
+                <div>
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-tight mb-2 block">Ratear Fixo para Tarefas</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="number" 
+                      placeholder="Ex: 50000" 
+                      className="flex-1 px-2 py-1.5 text-xs rounded border border-slate-200" 
+                      defaultValue={group.budget || ''}
+                      onKeyDown={e => {
+                         if (e.key === 'Enter') {
+                            const num = parseFloat(e.currentTarget.value);
+                            if (!isNaN(num)) onUpdateGroupBudget(group.id, num);
+                            document.body.click(); // Close popover
+                         }
+                      }}
+                    />
+                    <button 
+                      className="px-3 py-1.5 text-xs rounded bg-emerald-600 text-white font-bold hover:bg-emerald-700"
+                      onClick={(e) => {
+                         const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                         const num = parseFloat(input.value);
+                         if (!isNaN(num)) onUpdateGroupBudget(group.id, num);
+                         document.body.click(); // Close popover
+                      }}
+                    >Aplicar</button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </PopoverContent>
       </Popover>
@@ -562,6 +595,9 @@ export default function TableView({
                          <DropdownMenuContent align="end" className="w-48 bg-white border border-slate-100 shadow-xl rounded-lg p-1 z-[110]">
                            <DropdownMenuItem className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold hover:bg-slate-50 rounded-md cursor-pointer text-slate-600" onClick={(e) => { e.stopPropagation(); setEditValue(group.title); setEditingGroup(group.id); }}>
                              <Pencil className="w-4 h-4" /> Renomear Grupo
+                           </DropdownMenuItem>
+                           <DropdownMenuItem className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold hover:bg-slate-50 rounded-md cursor-pointer text-slate-600" onClick={(e) => { e.stopPropagation(); const v = window.prompt('Defina o Orçamento Total deste grupo para rateio dinâmico das tarefas:', String(group.budget || '')); if (v !== null) { const num = parseFloat(v); if (!isNaN(num)) onUpdateGroupBudget(group.id, num); } }}>
+                             <DollarSign className="w-4 h-4" /> Orçamento Fixo
                            </DropdownMenuItem>
                            <DropdownMenuItem className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold hover:bg-slate-50 rounded-md cursor-pointer text-slate-600" onClick={(e) => { e.stopPropagation(); onDuplicateGroup(group.id); }}>
                              <Copy className="w-4 h-4" /> Duplicar Grupo

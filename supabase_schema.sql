@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS task_groups (
   board_id UUID REFERENCES boards(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   color TEXT DEFAULT 'blue',
-  position INTEGER DEFAULT 0
+  position INTEGER DEFAULT 0,
+  budget NUMERIC
 );
 
 -- 4. Tabela de Tarefas (Tasks)
