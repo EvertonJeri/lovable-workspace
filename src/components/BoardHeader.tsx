@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Board, ViewMode } from '@/types/board';
+import { Board, ViewMode, STATUS_LABELS, PRIORITY_LABELS } from '@/types/board';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -133,14 +133,39 @@ export default function BoardHeader({
       cats[0].values[g.title] = (cats[0].values[g.title] || 0) + g.tasks.length;
       g.tasks.forEach(t => {
         cats[1].values[t.name] = (cats[1].values[t.name] || 0) + 1;
+        
         board.columns.forEach(col => {
-          const val = t.columnValues[col.id];
-          if (val !== undefined && val !== null && val !== '') {
-            const cat = cats.find(c => c.id === col.id);
-            if (cat) {
-              const displayVal = String(val);
-              cat.values[displayVal] = (cat.values[displayVal] || 0) + 1;
+          let val = t.columnValues[col.id];
+          if (val === undefined || val === null || val === '') return;
+
+          const cat = cats.find(c => c.id === col.id);
+          if (!cat) return;
+
+          let displayVal = '';
+          if (col.type === 'status') {
+            displayVal = STATUS_LABELS[val as any] || 'Não iniciado';
+          } else if (col.type === 'priority') {
+            displayVal = PRIORITY_LABELS[val as any] || 'Média';
+          } else if (col.type === 'person') {
+            // Persons are arrays
+            if (Array.isArray(val)) {
+              val.forEach(p => {
+                if (p && p.name) {
+                  cat.values[p.name] = (cat.values[p.name] || 0) + 1;
+                }
+              });
+              return;
+            } else if (val && typeof val === 'object' && 'name' in val) {
+              displayVal = (val as any).name;
+            } else {
+              return;
             }
+          } else {
+            displayVal = String(val);
+          }
+
+          if (displayVal) {
+            cat.values[displayVal] = (cat.values[displayVal] || 0) + 1;
           }
         });
       });
@@ -385,9 +410,15 @@ export default function BoardHeader({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-slate-500 hover:bg-slate-100 hover:text-blue-600 transition-all font-bold"
           >
             {collapsedCount >= totalGroups ? (
-              <><Plus className="w-4 h-4 text-blue-500" /> <span>Expandir tudo</span></>
+              <span className="flex items-center gap-1.5">
+                <Plus className="w-4 h-4 text-blue-500" /> 
+                <span>Expandir tudo</span>
+              </span>
             ) : (
-              <><ChevronDown className="w-4 h-4" /> <span>Recolher tudo</span></>
+              <span className="flex items-center gap-1.5">
+                <ChevronDown className="w-4 h-4" /> 
+                <span>Recolher tudo</span>
+              </span>
             )}
           </button>
 

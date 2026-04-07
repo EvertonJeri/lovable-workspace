@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { ViewMode, Task, Board, TaskGroup, BoardColumn, ColumnType } from '@/types/board';
+import { ViewMode, Task, Board, TaskGroup, BoardColumn, ColumnType, STATUS_LABELS, PRIORITY_LABELS } from '@/types/board';
 import { sampleBoard, sampleBoards } from '@/data/sampleData';
 import AppSidebar from '@/components/AppSidebar';
 import BoardHeader from '@/components/BoardHeader';
@@ -768,17 +768,80 @@ export default function Index() {
 
   const filteredBoard = useMemo(() => {
     if (!activeBoard) return activeBoard;
+
+    // Se não houver busca nem filtros, retorna o quadro original filtrando apenas arquivados
+    const noActiveFilters = !searchTerm && Object.values(activeFilters).every(arr => arr.length === 0);
+    if (noActiveFilters) {
+      return {
+        ...activeBoard,
+        groups: activeBoard.groups.filter(g => !g.archived).map(g => ({
+          ...g,
+          tasks: g.tasks.filter(t => !t.archived)
+        }))
+      };
+    }
+
     return {
       ...activeBoard,
       groups: activeBoard.groups.filter(g => !g.archived).map(group => ({
         ...group,
         tasks: group.tasks.filter(task => {
           if (task.archived) return false;
-          const matchesSearch = !searchTerm || task.name.toLowerCase().includes(searchTerm.toLowerCase());
+
+          // 1. Busca por texto (Nome da tarefa, nome do grupo ou valores das colunas)
+          const matchesSearch = !searchTerm || 
+            task.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            group.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            Object.values(task.columnValues).some(v => String(v).toLowerCase().includes(searchTerm.toLowerCase()));
+          
           if (!matchesSearch) return false;
+
+          // 2. Filtros de Categorias (Lógica: AND entre categorias, OR dentro da categoria)
+          for (const [catId, selectedValues] of Object.entries(activeFilters)) {
+            if (!selectedValues || selectedValues.length === 0) continue;
+
+            let taskMatchesCategory = false;
+
+            if (catId === 'group') {
+              // Filtro por nome do grupo
+              taskMatchesCategory = selectedValues.includes(group.title);
+            } else if (catId === 'name') {
+              // Filtro por nome da tarefa
+              taskMatchesCategory = selectedValues.includes(task.name);
+            } else if (catId === 'person') {
+              // Filtro por pessoas (val pode ser array de objetos Person)
+              const persons = Object.values(task.columnValues).find(val => 
+                Array.isArray(val) && val.some(p => p && p.name)
+              ) as any[];
+              
+              if (persons && Array.isArray(persons)) {
+                taskMatchesCategory = persons.some(p => selectedValues.includes(p.name));
+              }
+            } else {
+              // Filtro por colunas dinâmicas (Status, Prioridade, etc)
+              const val = task.columnValues[catId];
+              const col = activeBoard.columns.find(c => c.id === catId);
+              let displayVal = 'Sem valor';
+              
+              if (val !== undefined && val !== null) {
+                if (col?.type === 'status') {
+                  displayVal = STATUS_LABELS[val as any] || 'Não iniciado';
+                } else if (col?.type === 'priority') {
+                  displayVal = PRIORITY_LABELS[val as any] || 'Média';
+                } else {
+                  displayVal = String(val);
+                }
+              }
+              
+              taskMatchesCategory = selectedValues.includes(displayVal);
+            }
+
+            if (!taskMatchesCategory) return false;
+          }
+
           return true;
         })
-      })).filter(group => group.tasks.length > 0 || Object.keys(activeFilters).length === 0)
+      })).filter(group => group.tasks.length > 0 || Object.keys(activeFilters).every(k => !activeFilters[k] || activeFilters[k].length === 0))
     };
   }, [activeBoard, searchTerm, activeFilters]);
 
