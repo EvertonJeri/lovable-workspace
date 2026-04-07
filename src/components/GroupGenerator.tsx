@@ -465,7 +465,7 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
                         : "Selecione os projetos"}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-2" align="start">
+                  <PopoverContent className="w-[380px] sm:w-[450px] p-2" align="start">
                     <ScrollArea className="h-48">
                       <div className="space-y-1 p-1">
                         {boards.map(b => (
@@ -490,13 +490,13 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
                                 );
                               }}
                             />
-                            <span className="text-sm border-0 bg-transparent flex-1 text-left select-none truncate">
+                            <span className="text-sm border-0 bg-transparent flex-1 text-left select-none truncate min-w-0 pr-2">
                               {b.title}
                             </span>
                             
                             {selectedBoardIds.includes(b.id) && template === 'producao' && (
                               <div 
-                                className="flex items-center gap-1.5 ml-auto pl-2 border-l"
+                                className="flex items-center gap-1.5 ml-auto pl-2 border-l shrink-0"
                                 onClick={(e) => e.stopPropagation()}
                                 title="Aplicar Fator de Orçamento neste projeto?"
                               >
