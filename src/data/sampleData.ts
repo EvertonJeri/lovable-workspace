@@ -10,7 +10,7 @@ const defaultColumns: BoardColumn[] = [
   { id: 'budget', type: 'number', title: 'Orçamento Job', unit: 'R$', width: 140, summaryType: 'sum', position: 5 },
   { id: 'materialCost', type: 'number', title: 'Custo Material', unit: 'R$', width: 140, summaryType: 'sum', position: 6 },
   { id: 'moCost', type: 'number', title: 'Custo M.O', unit: 'R$', width: 140, summaryType: 'sum', position: 7 },
-  { id: 'finalCost', type: 'formula', title: 'Cálculo Custo', formulaExpr: '{7} + {8}', width: 140, position: 8 },
+  { id: 'finalCost', type: 'formula', title: 'Saldo a Executar', formulaExpr: '{Orçamento Job} - ({Orçamento Job} * ({%} / 100))', width: 140, position: 8 },
 ];
 
 export const sampleBoards: Board[] = [
@@ -32,7 +32,7 @@ export const sampleBoards: Board[] = [
               status: 'done', priority: 'high',
               assignee: [{ id: 'u1', name: 'Gustavo Lima', avatar: 'https://i.pravatar.cc/150?u=gustavo' }],
               timeline: { start: '2026-03-25', end: '2026-03-28' },
-              budget: 433.16, progress: 100
+              budget: 433.16, percentage: 100
             }
           },
           {
@@ -41,7 +41,7 @@ export const sampleBoards: Board[] = [
               status: 'working', priority: 'medium',
               assignee: [{ id: 'u2', name: 'Maria Costa', avatar: 'https://i.pravatar.cc/150?u=maria' }],
               timeline: { start: '2026-03-28', end: '2026-04-03' },
-              budget: 216.58, progress: 45
+              budget: 216.58, percentage: 45
             }
           },
           {
@@ -50,7 +50,7 @@ export const sampleBoards: Board[] = [
               status: 'stuck', priority: 'high',
               assignee: [{ id: 'u3', name: 'Ana Santos', avatar: 'https://i.pravatar.cc/150?u=ana' }],
               timeline: { start: '2026-03-30', end: '2026-04-05' },
-              budget: 1516.06, progress: 10
+              budget: 1516.06, percentage: 10
             }
           },
         ]
@@ -66,7 +66,7 @@ export const sampleBoards: Board[] = [
               status: 'working', priority: 'high',
               assignee: [{ id: 'u4', name: 'Carlos Pereira', avatar: 'https://i.pravatar.cc/150?u=carlos' }],
               timeline: { start: '2026-03-24', end: '2026-03-27' },
-              budget: 3248.70, progress: 60
+              budget: 3248.70, percentage: 60
             }
           },
         ]
@@ -88,7 +88,7 @@ export const sampleBoards: Board[] = [
       { id: 'c10', type: 'number', title: 'Semana 04 (%)', unit: '%', width: 120, summaryType: 'avg', position: 5 },
       { id: 'c11', type: 'number', title: 'Semana 05 (%)', unit: '%', width: 120, summaryType: 'avg', position: 6 },
       { id: 'c8', type: 'status', title: 'Status', width: 140, position: 7 },
-      { id: 'c9', type: 'formula', title: 'Fórmula', width: 140, position: 8 },
+      { id: 'c9', type: 'formula', title: 'Saldo a Executar', formulaExpr: '{Orçado} - ({Orçado} * ({Percentual (%)}) / 100)', width: 140, position: 8 },
     ],
     groups: [
       {

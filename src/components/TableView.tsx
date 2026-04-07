@@ -99,13 +99,7 @@ export default function TableView({
     }
   }, [editingTask]);
 
-  const filteredGroups = board.groups.map(group => ({
-    ...group,
-    tasks: group.tasks.filter(task => 
-      !searchTerm || task.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      Object.values(task.columnValues).some(v => typeof v === 'string' && v.toLowerCase().includes(searchTerm.toLowerCase()))
-    )
-  })).filter(g => (g.tasks.length > 0 || !searchTerm) && !g.archived);
+  const displayGroups = board.groups;
 
   const calculateSummary = (group: TaskGroup, column: BoardColumn) => {
     let values: any[] = [];
@@ -515,12 +509,28 @@ export default function TableView({
         );
       default:
         if (isEditing) {
-          return <input ref={colInputRef} className="w-full h-full px-4 text-[12px] border-2 border-blue-500 focus:outline-none" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => { 
-            if (editingCell) {
-              onUpdateTask({ ...task, columnValues: { ...task.columnValues, [column.id]: editValue } }); 
-              setEditingCell(null); 
-            }
-          }} onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()} />;
+          const isNumeric = column.type === 'number' || column.title.toLowerCase().includes('%') || column.type === 'progress';
+          return (
+            <input 
+              ref={colInputRef} 
+              className="w-full h-full px-4 text-[12px] border-2 border-blue-500 focus:outline-none" 
+              value={editValue} 
+              onChange={e => setEditValue(e.target.value)} 
+              onBlur={() => { 
+                if (editingCell) {
+                  let finalVal: any = editValue;
+                  if (isNumeric) {
+                    const raw = String(editValue).replace('R$', '').replace('%', '').replace(/\s/g, '').replace(',', '.');
+                    finalVal = parseFloat(raw);
+                    if (isNaN(finalVal)) finalVal = 0;
+                  }
+                  onUpdateTask({ ...task, columnValues: { ...task.columnValues, [column.id]: finalVal } }); 
+                  setEditingCell(null); 
+                }
+              }} 
+              onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()} 
+            />
+          );
         }
         const progress = (value as number) || 0;
         if (column.type === 'progress' || column.title.toLowerCase().includes('%')) {
@@ -536,7 +546,7 @@ export default function TableView({
   return (
     <div className="flex-1 overflow-x-auto bg-[#F5F6F8] min-h-screen relative">
       <div className="inline-block min-w-full align-middle pt-4 px-6 pb-20">
-        {filteredGroups.map((group) => {
+        {displayGroups.map((group) => {
           const collapsed = collapsedGroups.has(group.id);
           const color = groupColorHex[group.color];
           return (

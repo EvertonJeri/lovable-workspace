@@ -159,31 +159,77 @@ export default function Index() {
   }, [viewMode]);
 
   const handleTaskUpdate = useCallback(async (updated: Task) => {
+    let targetBoardId = activeBoardId;
+    let currentActiveBoard = activeBoard;
+
     if (isSample(activeBoardId)) {
       const result = await persistBoard(activeBoard);
       if (!result) return;
-      setActiveBoardId(result.id);
-      toast.info("Projeto salvo no banco. Por favor realize a alteração novamente.");
-      return;
+      targetBoardId = result.id;
+      currentActiveBoard = { ...activeBoard, id: targetBoardId };
+      setActiveBoardId(targetBoardId);
+      // Continue and apply the update to the new real board
     }
 
     let finalTaskToSave = updated;
-    const targetGroup = activeBoard?.groups.find(g => g.id === updated.groupId);
+    const targetGroup = currentActiveBoard?.groups.find(g => g.id === updated.groupId);
 
+    // DYNAMIC CALCULATION: Relation between Budget, Percentage and Group Total
     if (targetGroup && targetGroup.budget && targetGroup.budget > 0) {
-      const orcadoCol = activeBoard.columns.find(c => c.unit === 'R$' || c.title.toLowerCase().includes('orç') || c.title.toLowerCase().includes('budg'));
-      const percentCol = activeBoard.columns.find(c => c.unit === '%' || c.type === 'progress' || c.title.toLowerCase().includes('%') || c.title.toLowerCase().includes('perc'));
+      const orcadoCol = currentActiveBoard.columns.find(c => 
+        c.unit === 'R$' || 
+        c.title.toLowerCase().includes('orç') || 
+        c.title.toLowerCase().includes('budg') ||
+        c.id === 'budget' || c.id === 'c4'
+      );
+      const percentCol = currentActiveBoard.columns.find(c => 
+        c.unit === '%' || 
+        c.type === 'progress' || 
+        c.title.toLowerCase().includes('%') || 
+        c.title.toLowerCase().includes('perc') ||
+        c.id === 'percentage' || c.id === 'progress' || c.id === 'c3'
+      );
       
       if (orcadoCol && percentCol) {
-         const perc = parseFloat(String(updated.columnValues[percentCol.id])) || 0;
-         const calculatedBudget = (perc / 100) * targetGroup.budget;
-         finalTaskToSave = {
-           ...updated,
-           columnValues: {
-             ...updated.columnValues,
-             [orcadoCol.id]: calculatedBudget
-           }
+         const parseLocal = (val: any) => {
+           if (typeof val === 'number') return val;
+           if (!val) return 0;
+           return parseFloat(String(val).replace('R$', '').replace('%', '').replace(/\s/g, '').replace(',', '.')) || 0;
          };
+
+         const oldTask = targetGroup.tasks.find(t => t.id === updated.id);
+         const oldPerc = oldTask ? parseLocal(oldTask.columnValues[percentCol.id]) : -1;
+         const newPerc = parseLocal(updated.columnValues[percentCol.id]);
+         
+         const oldOrcado = oldTask ? parseLocal(oldTask.columnValues[orcadoCol.id]) : -1;
+         const newOrcado = parseLocal(updated.columnValues[orcadoCol.id]);
+
+         // Robust comparison to handle floating point and 0
+         const percChanged = Math.abs(newPerc - oldPerc) > 0.0001;
+         const orcadoChanged = Math.abs(newOrcado - oldOrcado) > 0.0001;
+
+         // A. If percentage changed (or budget is 0), update budget
+         if (percChanged || (newOrcado === 0 && oldOrcado !== 0)) {
+            const calculatedBudget = (newPerc / 100) * targetGroup.budget;
+            finalTaskToSave = {
+              ...updated,
+              columnValues: {
+                ...updated.columnValues,
+                [orcadoCol.id]: Math.round(calculatedBudget * 100) / 100
+              }
+            };
+         } 
+         // B. If budget changed manually, update percentage
+         else if (orcadoChanged) {
+            const calculatedPerc = (newOrcado / targetGroup.budget) * 100;
+            finalTaskToSave = {
+              ...updated,
+              columnValues: {
+                ...updated.columnValues,
+                [percentCol.id]: Math.min(100, Math.round(calculatedPerc * 100) / 100)
+              }
+            };
+         }
       }
     }
 

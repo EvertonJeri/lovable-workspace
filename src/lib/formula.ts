@@ -161,17 +161,28 @@ export function evaluateFormula(formula: string, task: Task, columns: BoardColum
     });
 
     // ============ COLUMN VALUE REPLACEMENT ============
-    // Replace {Column Name} with actual numeric values (case-insensitive)
+    // Replace {Column Name} or {Column ID} with actual numeric values
     columns.forEach(col => {
       const val = task.columnValues[col.id];
-      const numericValue = typeof val === 'number' ? val : parseFloat(String(val)) || 0;
+      // Handle numeric values, supporting strings with commas if needed
+      let numericValue = 0;
+      if (typeof val === 'number') {
+        numericValue = val;
+      } else if (typeof val === 'string') {
+        numericValue = parseFloat(val.replace(',', '.')) || 0;
+      }
       
-      // Escape special regex characters in the title just in case it contains them
+      // Match by Title: {Column Title}
       const escapedTitle = col.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const placeholderRegex = new RegExp(`\\{${escapedTitle}\\}`, 'gi');
-      
-      if (expression.match(placeholderRegex)) {
-        expression = expression.replace(placeholderRegex, String(numericValue));
+      const titleRegex = new RegExp(`\\{${escapedTitle}\\}`, 'gi');
+      if (expression.match(titleRegex)) {
+        expression = expression.replace(titleRegex, String(numericValue));
+      }
+
+      // Match by ID: {column_id} (fallback)
+      const idRegex = new RegExp(`\\{${col.id}\\}`, 'gi');
+      if (expression.match(idRegex)) {
+        expression = expression.replace(idRegex, String(numericValue));
       }
     });
 
