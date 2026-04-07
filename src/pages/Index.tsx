@@ -972,6 +972,7 @@ export default function Index() {
             )}
 
             {viewMode === 'gantt' && filteredBoard && <GanttView board={filteredBoard} />}
+            {viewMode === 'ganttJobs' && filteredBoard && <GanttJobsView board={filteredBoard} />}
             {viewMode === 'dashboard' && filteredBoard && <ExecDashboard board={filteredBoard} />}
           </>
         )}

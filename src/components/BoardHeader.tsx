@@ -54,9 +54,9 @@ interface BoardHeaderProps {
 
 const views: { mode: ViewMode; icon: React.ElementType; label: string }[] = [
   { mode: 'table', icon: Table2, label: 'Tabela' },
-  { mode: 'kanban', icon: Kanban, label: 'Kanban' },
+  { mode: 'ganttJobs', icon: GanttChart, label: 'Gantt de Jobs' },
   { mode: 'gantt', icon: GanttChart, label: 'Gantt' },
-  { mode: 'dashboard', icon: Kanban, label: 'Desempenho Oficial' }, // Using Kanban as placeholder or keep original LayoutGrid if needed
+  { mode: 'dashboard', icon: Kanban, label: 'Desempenho Oficial' },
 ];
 
 export default function BoardHeader({ 
