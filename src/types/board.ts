@@ -14,7 +14,7 @@ export type ColumnType =
   | 'priority'
   | 'time';
 
-export type ViewMode = 'table' | 'kanban' | 'timeline' | 'calendar' | 'dashboard' | 'gantt' | 'generator';
+export type ViewMode = 'table' | 'kanban' | 'timeline' | 'calendar' | 'dashboard' | 'gantt' | 'ganttJobs' | 'generator';
 
 export type TaskStatus = 'done' | 'working' | 'stuck' | 'default';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';

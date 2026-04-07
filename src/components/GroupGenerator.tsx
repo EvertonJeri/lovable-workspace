@@ -164,7 +164,7 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
         }
 
         if (isDuplicate) {
-          toast.info(`O grupo "${groupTitle}" já existe no projeto "${targetBoard.title}". Pulando...`);
+          toast.warning(`⚠️ Grupo duplicado! O grupo "${groupTitle}" já existe no projeto "${targetBoard.title}". Não será criado novamente.`, { duration: 6000 });
           continue;
         }
 
@@ -206,22 +206,23 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
         // Advanced Budget Lookup: Priority Title -> Fuzzy Title -> Any valid Number column
         const getBudgetColId = () => {
           // 1. Strict and Prioritized Variations
-          const byTitle = findByTitle(['Orçamento', 'Orcamento', 'Orçado', 'Orcado', 'Budget', 'Total', 'Valor', 'Custo']);
+          const byTitle = findByTitle(['Orçamento', 'Orcamento', 'Orçado', 'Orcado', 'Orçamento Job', 'Budget', 'Total', 'Valor', 'Custo']);
           if (byTitle) return byTitle;
 
-          // 2. Fuzzy search for keywords
-          const fuzzyKeywords = ['orcament', 'budg', 'custo', 'valor', 'job', 'financeiro'];
-          const fuzzy = allColumns.find(c => {
-             const nt = normalize(c.title);
-             return fuzzyKeywords.some(k => nt.includes(k));
+          // 2. Contains-based search for common budget keywords in column title
+          const containsKeywords = ['orcament', 'orcad', 'budg', 'custo', 'valor', 'financeiro'];
+          const byContains = allColumns.find(c => {
+            const nt = normalize(c.title);
+            return containsKeywords.some(k => nt.includes(k));
           });
-          if (fuzzy) return fuzzy.id;
+          if (byContains) return byContains.id;
 
           // 3. Fallback: Any Number column that isn't the percentage column
           return allColumns.find(c => 
             c.type === 'number' && 
             !normalize(c.title).includes('perc') && 
-            !normalize(c.title).includes('%')
+            !normalize(c.title).includes('%') &&
+            !normalize(c.title).includes('semana')
           )?.id;
         };
 
@@ -423,7 +424,10 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
       } // Fim do loop de projetos
 
       toast.success('Grupos gerados com sucesso nos projetos selecionados!');
-      // Mantemos o usuário na página atual conforme solicitado
+      // Refresh board data after generation
+      if (onGeneratorComplete && selectedBoardIds.length > 0) {
+        onGeneratorComplete(selectedBoardIds[0]);
+      }
     } catch (err: any) {
       console.error(err);
       toast.error('Erro ao gerar grupos: ' + err.message);
