@@ -150,6 +150,24 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
           continue;
         }
 
+        // PREVENÇÃO DE DUPLICIDADE: Verifica se já existe um grupo com este nome neste projeto (Local e Remoto)
+        let isDuplicate = targetBoard.groups.some(g => g.title.toLowerCase() === groupTitle.toLowerCase() && !g.archived);
+        
+        if (!isDuplicate) {
+          const { data: remoteGroups } = await supabase
+            .from('task_groups')
+            .select('id')
+            .eq('board_id', boardId)
+            .eq('title', groupTitle)
+            .eq('is_archived', false);
+          if (remoteGroups && remoteGroups.length > 0) isDuplicate = true;
+        }
+
+        if (isDuplicate) {
+          toast.info(`O grupo "${groupTitle}" já existe no projeto "${targetBoard.title}". Pulando...`);
+          continue;
+        }
+
         // Fetch live column data directly from Supabase to get real IDs
         const { data: liveColumns } = await supabase
           .from('board_columns')
@@ -165,30 +183,68 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
             }))
           : targetBoard.columns.map(c => ({ id: c.id, type: c.type, title: c.title }));
 
-        console.log(`[GroupGenerator] Columns found for board ${boardId}:`, allColumns.map(c => `"${c.title}" (${c.type}) → ${c.id}`));
+         const normalize = (s: string) => 
+          s.toLowerCase()
+           .normalize("NFD")
+           .replace(/[\u0300-\u036f]/g, "")
+           .replace(/[^a-z0-9]/g, "")
+           .trim();
 
-        // TITLE-ONLY matching to avoid two number columns resolving to the same one
         const findByTitle = (titles: string[]): string | undefined => {
-          return allColumns.find(c => 
-            titles.some(t => c.title.toLowerCase().trim() === t.toLowerCase().trim())
-          )?.id;
+          const normalizedTargetTitles = titles.map(normalize);
+          const found = allColumns.find(c => 
+            normalizedTargetTitles.includes(normalize(c.title))
+          );
+          if (found) return found.id;
+          return undefined;
         };
 
-        // Type-based matching (only used as fallback for unique types like status, date, timeline)
         const findByType = (type: string): string | undefined => {
           return allColumns.find(c => c.type === type)?.id;
         };
 
-        // Map columns:
+        // Advanced Budget Lookup: Priority Title -> Fuzzy Title -> Any valid Number column
+        const getBudgetColId = () => {
+          // 1. Strict and Prioritized Variations
+          const byTitle = findByTitle(['Orçamento', 'Orcamento', 'Orçado', 'Orcado', 'Budget', 'Total', 'Valor', 'Custo']);
+          if (byTitle) return byTitle;
+
+          // 2. Fuzzy search for keywords
+          const fuzzyKeywords = ['orcament', 'budg', 'custo', 'valor', 'job', 'financeiro'];
+          const fuzzy = allColumns.find(c => {
+             const nt = normalize(c.title);
+             return fuzzyKeywords.some(k => nt.includes(k));
+          });
+          if (fuzzy) return fuzzy.id;
+
+          // 3. Fallback: Any Number column that isn't the percentage column
+          return allColumns.find(c => 
+            c.type === 'number' && 
+            !normalize(c.title).includes('perc') && 
+            !normalize(c.title).includes('%')
+          )?.id;
+        };
+
         const colIds = {
           status:       findByTitle(['Status', 'Status Setor', 'Setor']) || findByType('status'),
           deliveryDate: findByTitle(['Data de Entr.', 'Data de Entrega', 'Entrega', 'Data']) || findByType('date'),
-          budget:       findByTitle(['Orçamento Job', 'Orçado', 'Orçamento', 'Custo']),
+          budget:       getBudgetColId(),
           percentage:   findByTitle(['%', 'Progresso', 'Percentual', 'Percentual (%)']),
           timeline:     findByTitle(['Cronograma', 'Timeline', 'Prazo']) || findByType('timeline'),
         };
 
-        console.log(`[GroupGenerator] Mapped colIds for board ${boardId}:`, JSON.stringify(colIds));
+        const shouldApplyFactor = applyFactorPerBoard[boardId] !== false;
+
+        console.log(`[GroupGenerator] Final Mapping for board ${boardId}:`, { colIds, shouldApplyFactor });
+        
+        // Alerta diagnóstico
+        if (!colIds.budget) {
+           toast.error(`Atenção: Não encontramos nenhuma coluna para Orçamento no projeto "${targetBoard.title}".`);
+        } else if (!shouldApplyFactor) {
+           toast.warning(`Atenção: O fator de orçamento está desligado para o projeto "${targetBoard.title}".`);
+        } else {
+           console.log(`[GroupGenerator] Mapeamento OK para ${targetBoard.title}`);
+        }
 
         const { data: newGroup, error: groupErr } = await supabase.from('task_groups').insert({
           board_id: boardId,
@@ -207,16 +263,22 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
 
           const percFinal = redistributeFromNa(baseMap, naSectors, receptorSectors);
           const parseMoney = (s: string) => {
-            const cleaned = s.replace(/\s/g, '');
-            if (cleaned.includes(',') && cleaned.includes('.')) {
-              return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
+            if (!s) return 0;
+            let val = s.replace(/R\$/g, '').replace(/\s/g, '').trim();
+            if (val.includes(',')) {
+              val = val.replace(/\./g, '').replace(',', '.');
             }
-            return parseFloat(cleaned.replace(',', '.'));
+            return parseFloat(val) || 0;
           };
-          const totalBudgetVal = parseMoney(totalBudget) || 0;
+          const totalBudgetVal = parseMoney(totalBudget);
           const totalRedistribuivel = totalBudgetVal * (distributionFactor / 100);
 
-          console.log('[GroupGenerator] Budget:', { totalBudgetVal, distributionFactor, totalRedistribuivel });
+          console.log('[GroupGenerator] Calculation Check:', { 
+            input: totalBudget, 
+            parsed: totalBudgetVal, 
+            redist: totalRedistribuivel,
+            hasBudgetCol: !!colIds.budget
+          });
 
         const taskIds: string[] = [];
         const taskBudgets: number[] = [];
@@ -361,9 +423,7 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
       } // Fim do loop de projetos
 
       toast.success('Grupos gerados com sucesso nos projetos selecionados!');
-      if (onGeneratorComplete && selectedBoardIds.length > 0) {
-        onGeneratorComplete(selectedBoardIds[0]); // Atualiza a tela com o primeiro projeto selecionado
-      }
+      // Mantemos o usuário na página atual conforme solicitado
     } catch (err: any) {
       console.error(err);
       toast.error('Erro ao gerar grupos: ' + err.message);

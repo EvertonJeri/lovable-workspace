@@ -109,50 +109,58 @@ export default function TableView({
       values = group.tasks.map(t => t.columnValues[column.id]).filter(v => v !== undefined && v !== null);
     }
     
-    if (column.type === 'status' || column.type === 'progress' || column.title.toLowerCase().includes('%') || column.type === 'priority') {
-      if (column.type === 'status' || column.type === 'priority') {
-        const counts: Record<string, number> = {};
-        values.forEach(v => {
-          const s = String(v || 'default');
-          counts[s] = (counts[s] || 0) + 1;
-        });
-        const total = values.length;
-        if (total === 0) return <div className="w-full h-4 bg-slate-100/50 rounded-sm mx-2" />;
-        const colorMap = column.type === 'status' ? statusColors : priorityColors;
-        
-        return (
-          <div className="w-full px-2">
-            <div className="w-full h-4 flex rounded-sm overflow-hidden bg-slate-100 shadow-inner">
-              {Object.entries(counts).map(([key, count]) => (
-                <div 
-                  key={key} 
-                  style={{ 
-                    width: `${(count / total) * 100}%`, 
-                    backgroundColor: colorMap[key] || colorMap.default 
-                  }} 
-                  className="h-full border-r border-white/20 last:border-none"
-                />
-              ))}
-            </div>
+    const summaryType = column.summaryType || 'none';
+    const numericValues = values.map(v => typeof v === 'number' ? v : parseFloat(String(v)) || 0).filter(v => !isNaN(v));
+
+    // Special visual for Status and Priority
+    if ((column.type === 'status' || column.type === 'priority') && summaryType === 'none') {
+      const counts: Record<string, number> = {};
+      values.forEach(v => {
+        const s = String(v || 'default');
+        counts[s] = (counts[s] || 0) + 1;
+      });
+      const total = values.length;
+      if (total === 0) return <div className="w-full h-4 bg-slate-100/50 rounded-sm mx-2" />;
+      const colorMap = column.type === 'status' ? statusColors : priorityColors;
+      
+      return (
+        <div className="w-full px-2">
+          <div className="w-full h-4 flex rounded-sm overflow-hidden bg-slate-100 shadow-inner">
+            {Object.entries(counts).map(([key, count]) => (
+              <div 
+                key={key} 
+                style={{ 
+                  width: `${(count / total) * 100}%`, 
+                  backgroundColor: colorMap[key] || colorMap.default 
+                }} 
+                className="h-full border-r border-white/20 last:border-none"
+              />
+            ))}
           </div>
-        );
-      } else {
-        const numericValues = values.map(v => typeof v === 'number' ? v : parseFloat(String(v)) || 0).filter(v => !isNaN(v));
-        const avg = numericValues.length > 0 ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length : 0;
-        return (
-           <div className="w-full px-2 flex flex-col gap-1 items-center">
-             <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner w-3/4">
-               <div className={cn("h-full transition-all", avg >= 100 ? "bg-green-500" : "bg-blue-500")} style={{ width: `${Math.min(avg, 100)}%` }} />
-             </div>
-             <span className="text-[10px] font-bold text-slate-500">{new Intl.NumberFormat('pt-BR').format(avg)}%</span>
-           </div>
-        );
-      }
+        </div>
+      );
     }
 
+    // Default visual for Progress / Percentage (when no calculation is selected)
+    if ((column.type === 'progress' || column.title.toLowerCase().includes('%') || (column.unit === '%' && column.type === 'number')) && summaryType === 'none') {
+      const avg = numericValues.length > 0 ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length : 0;
+      return (
+        <Popover>
+          <PopoverTrigger asChild>
+            <div className="w-full px-2 flex flex-col gap-1 items-center cursor-pointer hover:bg-slate-200/50 transition-colors py-1 group/summary">
+              <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner w-3/4">
+                <div className={cn("h-full transition-all", avg >= 100 ? "bg-green-500" : "bg-blue-500")} style={{ width: `${Math.min(avg, 100)}%` }} />
+              </div>
+              <span className="text-[10px] font-bold text-slate-500">{new Intl.NumberFormat('pt-BR').format(avg)}%</span>
+            </div>
+          </PopoverTrigger>
+          {renderSummarySettings(group, column, summaryType)}
+        </Popover>
+      );
+    }
+
+    // Standard numeric summary
     let result: number | string = 0;
-    const numericValues = values.map(v => typeof v === 'number' ? v : parseFloat(String(v)) || 0).filter(v => !isNaN(v));
-    const summaryType = column.summaryType || 'none';
     
     switch (summaryType) {
       case 'sum': result = numericValues.reduce((a, b) => a + b, 0); break;
@@ -178,73 +186,94 @@ export default function TableView({
                   <span className="text-[9px] uppercase text-muted-foreground font-semibold">{labelMap[summaryType]}</span>
                 </>
              ) : (
-                <div className="opacity-0 group-hover/summary:opacity-100 transition-opacity">
+                <div className="opacity-40 group-hover/summary:opacity-100 transition-opacity">
                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                   <span className="text-[9px] uppercase text-muted-foreground font-semibold block">Cálculo</span>
                 </div>
              )}
           </div>
         </PopoverTrigger>
-        <PopoverContent className="w-80 p-4 bg-white border border-slate-200 shadow-2xl rounded-xl z-[100]" onClick={e => e.stopPropagation()}>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between items-center mb-3">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-tight">Unidade</label>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {['none', '$', '€', '£', '%'].map(unit => (
-                  <button key={unit} onClick={() => onUpdateColumn(column.id, { unit: unit === 'none' ? undefined : unit })} className={cn("px-2 py-1.5 text-xs rounded border transition-all", ((!column.unit && unit === 'none') || column.unit === unit) ? "bg-blue-600 border-blue-600 text-white font-bold" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")}>
-                    {unit === 'none' ? 'Nenhum' : unit}
-                  </button>
-                ))}
-                <input placeholder="Personalizado" className="flex-1 px-2 py-1.5 text-xs rounded border border-slate-200" onChange={e => onUpdateColumn(column.id, { unit: e.target.value })} value={column.unit && !['$', '€', '£', '%'].includes(column.unit) ? column.unit : ''} />
-              </div>
-            </div>
-            <DropdownMenuSeparator className="bg-slate-100" />
-            <div>
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-tight mb-2 block">Cálculo</label>
-              <div className="flex flex-wrap gap-1">
-                {['none', 'sum', 'avg', 'min', 'max', 'count'].map(type => (
-                  <button key={type} onClick={() => onUpdateColumn(column.id, { summaryType: type as any })} className={cn("px-3 py-1.5 text-xs rounded border transition-all", summaryType === type ? "bg-blue-600 border-blue-600 text-white font-bold" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")}>
-                    {labelMap[type] || 'Nenhum'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {(column.unit === 'R$' || column.title.toLowerCase().includes('orç')) && (
-              <>
-                <DropdownMenuSeparator className="bg-slate-100" />
-                <div>
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-tight mb-2 block">Ratear Fixo para Tarefas</label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="number" 
-                      placeholder="Ex: 50000" 
-                      className="flex-1 px-2 py-1.5 text-xs rounded border border-slate-200" 
-                      defaultValue={group.budget || ''}
-                      onKeyDown={e => {
-                         if (e.key === 'Enter') {
-                            const num = parseFloat(e.currentTarget.value);
-                            if (!isNaN(num)) onUpdateGroupBudget(group.id, num);
-                            document.body.click(); // Close popover
-                         }
-                      }}
-                    />
-                    <button 
-                      className="px-3 py-1.5 text-xs rounded bg-emerald-600 text-white font-bold hover:bg-emerald-700"
-                      onClick={(e) => {
-                         const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-                         const num = parseFloat(input.value);
-                         if (!isNaN(num)) onUpdateGroupBudget(group.id, num);
-                         document.body.click(); // Close popover
-                      }}
-                    >Aplicar</button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </PopoverContent>
+        {renderSummarySettings(group, column, summaryType)}
       </Popover>
+    );
+  };
+
+  const renderSummarySettings = (group: TaskGroup, column: BoardColumn, summaryType: string) => {
+    const labelMap: any = { sum: 'Total', avg: 'Média', count: 'Contagem', min: 'Mín.', max: 'Máx.', none: 'Cálculo' };
+    return (
+      <PopoverContent className="w-80 p-4 bg-white border border-slate-200 shadow-2xl rounded-xl z-[100]" onClick={e => e.stopPropagation()}>
+        <div className="space-y-4">
+          <div>
+            <div className="flex justify-between items-center mb-3">
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-tight">Unidade</label>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {[null, '$', '€', '£', '%'].map(unit => (
+                <button 
+                  key={unit || 'none'} 
+                  onClick={() => onUpdateColumn(column.id, { unit: unit === null ? undefined : unit })} 
+                  className={cn("px-2 py-1.5 text-xs rounded border transition-all", ((!column.unit && unit === null) || column.unit === unit) ? "bg-blue-600 border-blue-600 text-white font-bold" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")}
+                >
+                  {unit === null ? 'Nenhum' : unit}
+                </button>
+              ))}
+              <input 
+                placeholder="Personalizado" 
+                className="flex-1 px-2 py-1.5 text-xs rounded border border-slate-200" 
+                onChange={e => onUpdateColumn(column.id, { unit: e.target.value })} 
+                value={column.unit && !['$', '€', '£', '%'].includes(column.unit) ? column.unit : ''} 
+              />
+            </div>
+          </div>
+          <DropdownMenuSeparator className="bg-slate-100" />
+          <div>
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-tight mb-2 block">Cálculo</label>
+            <div className="flex flex-wrap gap-1">
+              {['none', 'sum', 'avg', 'min', 'max', 'count'].map(type => (
+                <button 
+                  key={type} 
+                  onClick={() => onUpdateColumn(column.id, { summaryType: type as any })} 
+                  className={cn("px-3 py-1.5 text-xs rounded border transition-all", summaryType === type ? "bg-blue-600 border-blue-600 text-white font-bold" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")}
+                >
+                  {labelMap[type] || 'Cálculo'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {(column.unit === 'R$' || column.title.toLowerCase().includes('orç')) && (
+            <>
+              <DropdownMenuSeparator className="bg-slate-100" />
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-tight mb-2 block">Ratear Fixo para Tarefas</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="number" 
+                    placeholder="Ex: 50000" 
+                    className="flex-1 px-2 py-1.5 text-xs rounded border border-slate-200" 
+                    defaultValue={group.budget || ''}
+                    onKeyDown={e => {
+                       if (e.key === 'Enter') {
+                          const num = parseFloat(e.currentTarget.value);
+                          if (!isNaN(num)) onUpdateGroupBudget(group.id, num);
+                          document.body.click(); // Close popover
+                       }
+                    }}
+                  />
+                  <button 
+                    className="px-3 py-1.5 text-xs rounded bg-emerald-600 text-white font-bold hover:bg-emerald-700"
+                    onClick={(e) => {
+                       const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                       const num = parseFloat(input.value);
+                       if (!isNaN(num)) onUpdateGroupBudget(group.id, num);
+                       document.body.click(); // Close popover
+                    }}
+                  >Aplicar</button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </PopoverContent>
     );
   };
 
