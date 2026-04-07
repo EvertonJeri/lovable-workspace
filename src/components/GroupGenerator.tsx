@@ -424,7 +424,10 @@ export default function GroupGenerator({ boards, onAddColumn, onGeneratorComplet
       } // Fim do loop de projetos
 
       toast.success('Grupos gerados com sucesso nos projetos selecionados!');
-      // Mantemos o usuário na página atual conforme solicitado
+      // Refresh board data after generation
+      if (onGeneratorComplete && selectedBoardIds.length > 0) {
+        onGeneratorComplete(selectedBoardIds[0]);
+      }
     } catch (err: any) {
       console.error(err);
       toast.error('Erro ao gerar grupos: ' + err.message);
