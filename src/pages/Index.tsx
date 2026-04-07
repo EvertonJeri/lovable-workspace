@@ -8,6 +8,7 @@ import AutomationCenter from '@/components/AutomationCenter';
 import { Automation } from '@/types/automation';
 import TaskDialog from '@/components/TaskDialog';
 import GanttView from '@/components/GanttView';
+import GanttJobsView from '@/components/GanttJobsView';
 import ExecDashboard from '@/components/ExecDashboard';
 import { supabase, fetchBoards, createBoard, createTask, updateTaskValue, createGroup, fetchTeamMembers } from '@/lib/supabase';
 import { toast } from 'sonner';
