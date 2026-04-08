@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Layout, Plus, ChevronDown, Search, Users, MoreHorizontal, Pencil, Trash2, LayoutGrid, ChevronLeft, ChevronRight, Menu } from 'lucide-react';
+import { Layout, Plus, ChevronDown, Search, Users, MoreHorizontal, Pencil, Trash2, LayoutGrid, ChevronLeft, ChevronRight, Menu, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Board } from '@/types/board';
 import {
@@ -20,6 +20,7 @@ interface AppSidebarProps {
   onDuplicateBoard: (id: string) => void;
   onSelectTeam: () => void;
   onSelectGenerator: () => void;
+  onSelectGoals: () => void;
 }
 
 export default function AppSidebar({ 
@@ -31,7 +32,8 @@ export default function AppSidebar({
   onDeleteBoard,
   onDuplicateBoard,
   onSelectTeam,
-  onSelectGenerator
+  onSelectGenerator,
+  onSelectGoals
 }: AppSidebarProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -114,6 +116,18 @@ export default function AppSidebar({
           >
             <Users className="w-4 h-4 text-[#676879] group-hover:text-blue-500" />
             {!isCollapsed && <span>Equipe</span>}
+          </button>
+
+          <button 
+             onClick={onSelectGoals} 
+             className={cn(
+               "flex items-center gap-2 w-full px-2 py-2 rounded text-[13px] text-[#333333] hover:bg-[#f5f6f8] transition-colors group",
+               isCollapsed && "justify-center"
+             )}
+             title={isCollapsed ? "Metas" : ""}
+          >
+            <Target className="w-4 h-4 text-[#676879] group-hover:text-blue-500" />
+            {!isCollapsed && <span>Metas Mensais</span>}
           </button>
           
           {!isCollapsed && (

@@ -16,11 +16,12 @@ import ImportDialog from '@/components/ImportDialog';
 import TeamView from '@/components/TeamView';
 import ArchivedItemsDialog from '@/components/ArchivedItemsDialog';
 import GroupGenerator from '@/components/GroupGenerator';
+import GoalsView from '@/components/GoalsView';
 
 export default function Index() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string>('');
-  const [viewMode, setViewMode] = useState<ViewMode | 'team' | 'generator'>('table');
+  const [viewMode, setViewMode] = useState<ViewMode | 'team' | 'generator' | 'goals'>('table');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isAutomationOpen, setIsAutomationOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -919,6 +920,7 @@ export default function Index() {
         onDuplicateBoard={handleDuplicateBoard}
         onSelectTeam={() => setViewMode('team')}
         onSelectGenerator={() => setViewMode('generator')}
+        onSelectGoals={() => setViewMode('goals')}
       />
 
       <main className="flex-1 overflow-y-auto">
@@ -933,6 +935,8 @@ export default function Index() {
               setViewMode('table');
             });
           }} />
+        ) : viewMode === 'goals' ? (
+          <GoalsView />
         ) : (
           <>
             <BoardHeader
