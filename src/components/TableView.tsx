@@ -528,9 +528,25 @@ export default function TableView({
                   locale={ptBR}
                   initialFocus
                 />
-                <div className="p-2 border-t border-slate-50 flex justify-center">
+                <div className="p-2 border-t border-slate-50 flex flex-col gap-1">
+                  {dateVal && (
+                    <button 
+                      className="w-full py-1.5 text-xs text-blue-600 hover:bg-blue-50 font-bold rounded-md transition-colors"
+                      onClick={() => {
+                        if(confirm(`Aplicar a data ${formattedDate || dateVal} a todas as ${group.tasks.length} linhas do grupo "${group.title}"?`)) {
+                          group.tasks.forEach(t => {
+                            if(t.id !== task.id) {
+                               onUpdateTask({ ...t, columnValues: { ...t.columnValues, [column.id]: dateVal } });
+                            }
+                          });
+                        }
+                      }}
+                    >
+                      Aplicar ao Grupo
+                    </button>
+                  )}
                   <button 
-                    className="w-full py-2 text-xs text-red-600 hover:bg-red-50 font-bold rounded-md transition-colors"
+                    className="w-full py-1.5 text-xs text-red-600 hover:bg-red-50 font-bold rounded-md transition-colors"
                     onClick={() => {
                       onUpdateTask({ ...task, columnValues: { ...task.columnValues, [column.id]: null } });
                     }}
