@@ -110,10 +110,20 @@ export default function TableView({
 
   const calculateSummary = (group: TaskGroup, column: BoardColumn) => {
     let values: any[] = [];
+    const isHistory = group.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('historico');
+    
+    // Ignorar sub-linhas de Montagem e Produção no Histórico para o Resumo do Grupo
+    // pois a linha Pai já contempla o valor total e causaria soma duplicada.
+    const validTasks = group.tasks.filter(t => {
+      if (!isHistory) return true;
+      const n = (t.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return !n.includes('montagem') && !n.includes('producao') && !n.includes('produção');
+    });
+
     if (column.type === 'formula') {
-      values = group.tasks.map(t => evaluateFormula(column.formulaExpr || '', t, board.columns));
+      values = validTasks.map(t => evaluateFormula(column.formulaExpr || '', t, board.columns));
     } else {
-      values = group.tasks.map(t => t.columnValues[column.id]).filter(v => v !== undefined && v !== null);
+      values = validTasks.map(t => t.columnValues[column.id]).filter(v => v !== undefined && v !== null);
     }
     
     const summaryType = column.summaryType || 'none';
@@ -150,7 +160,6 @@ export default function TableView({
 
     // Default visual for Progress / Percentage (when no calculation is selected)
     if ((column.type === 'progress' || column.title.toLowerCase().includes('%') || (column.unit === '%' && column.type === 'number')) && summaryType === 'none') {
-      const isHistory = group.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('historico');
       const avg = numericValues.length > 0 ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length : 0;
       return (
         <Popover>
@@ -181,7 +190,6 @@ export default function TableView({
       default: result = 0;
     }
 
-    const isHistory = group.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('historico');
     const formatted = new Intl.NumberFormat('pt-BR').format(result as number);
     const labelMap: any = { sum: 'Total', avg: 'Média', count: 'Contagem', min: 'Mín.', max: 'Máx.', none: 'Cálculo' };
     
@@ -468,6 +476,15 @@ export default function TableView({
                         }}
                       />
                     </div>
+                    
+                    <button 
+                      className="w-full py-2 mt-2 text-xs text-red-600 hover:bg-red-50 font-bold rounded-md border border-red-100 transition-colors"
+                      onClick={() => {
+                        onUpdateTask({ ...task, columnValues: { ...task.columnValues, [column.id]: null } });
+                      }}
+                    >
+                      Limpar Data
+                    </button>
                   </div>
                 </PopoverContent>
               </Popover>
@@ -519,6 +536,16 @@ export default function TableView({
                   locale={ptBR}
                   initialFocus
                 />
+                <div className="p-2 border-t border-slate-50 flex justify-center">
+                  <button 
+                    className="w-full py-2 text-xs text-red-600 hover:bg-red-50 font-bold rounded-md transition-colors"
+                    onClick={() => {
+                      onUpdateTask({ ...task, columnValues: { ...task.columnValues, [column.id]: null } });
+                    }}
+                  >
+                    Limpar Data
+                  </button>
+                </div>
               </PopoverContent>
             </Popover>
           </div>
@@ -598,6 +625,65 @@ export default function TableView({
           const collapsed = collapsedGroups.has(group.id);
           const color = groupColorHex[group.color];
           const isHistoryGroup = group.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('historico');
+
+          let tasksToRender = group.tasks;
+          if (isHistoryGroup) {
+            const dateCol = board.columns.find(c => {
+              const n = c.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+              return n.includes('dataentrega') || n.includes('entrega') || n.includes('prazo');
+            });
+            const parseMonthCode = (v: any, taskName: string): number => {
+              // Retorna formato numérico YYYYMM (ex: 202604), assim ignora horas/fusos que causam desnível.
+              if (v) {
+                const s = String(v);
+                let dateObj: Date | null = null;
+                if (s.includes('/') && s.length <= 10) {
+                  const [d, m, y] = s.split('/');
+                  dateObj = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+                } else {
+                  try { dateObj = parseISO(s); } catch {}
+                }
+                if (dateObj && !isNaN(dateObj.getTime())) {
+                  return dateObj.getFullYear() * 100 + dateObj.getMonth();
+                }
+              }
+              
+              // Fallback: Extrair data do nome da tarefa ("Abril / 2026")
+              const nameNorm = taskName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+              const monthNames = ['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+              const monthIdx = monthNames.findIndex(m => nameNorm.includes(m));
+              if (monthIdx !== -1) {
+                const yearMatch = taskName.match(/\b(20\d{2})\b/);
+                const taskYear = yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear();
+                return taskYear * 100 + monthIdx;
+              }
+              
+              return 999999; // Se não houver data nem nome válido, joga pro fim
+            };
+
+            tasksToRender = [...group.tasks].sort((a, b) => {
+              const av = dateCol ? (a.columnValues[dateCol.id] ?? '') : '';
+              const bv = dateCol ? (b.columnValues[dateCol.id] ?? '') : '';
+              
+              const tA = parseMonthCode(av, a.name);
+              const tB = parseMonthCode(bv, b.name);
+              if (tA !== tB) return tA - tB;
+
+              // Desempate (mesma data): Pai > Produção > Montagem
+              const nameA = (a.name || '').toLowerCase();
+              const nameB = (b.name || '').toLowerCase();
+              const isParentA = !nameA.includes('producao') && !nameA.includes('produção') && !nameA.includes('montagem');
+              const isParentB = !nameB.includes('producao') && !nameB.includes('produção') && !nameB.includes('montagem');
+
+              if (isParentA && !isParentB) return -1;
+              if (!isParentA && isParentB) return 1;
+
+              if (nameA.includes('produ') && nameB.includes('mont')) return -1;
+              if (nameA.includes('mont') && nameB.includes('produ')) return 1;
+
+              return 0;
+            });
+          }
 
           return (
             <div key={group.id} className="mb-10 last:mb-20">
@@ -850,11 +936,30 @@ export default function TableView({
                   </div>
 
                   {/* TASKS ROWS */}
-                  {group.tasks.map((task) => (
+                  {tasksToRender.map((task) => {
+                    const tName = (task.name || '').toLowerCase();
+                    const isSubRow = isHistoryGroup && (tName.includes('producao') || tName.includes('produção') || tName.includes('montagem'));
+                    const isParentRow = isHistoryGroup && !isSubRow;
+                    
+                    const rowBgClass = isParentRow ? "bg-slate-100 hover:bg-slate-200 font-bold" : "bg-white hover:bg-[#f0f4ff]";
+                    let nameClass = "border-r border-b border-[#e6e9ef] flex items-center px-4 gap-2 truncate cursor-pointer select-none h-10 text-[13px] transition-colors " + rowBgClass;
+                    
+                    if (isParentRow) {
+                       nameClass += " text-[#323338] border-l-4 border-l-amber-500 shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]";
+                    } else if (isSubRow) {
+                       nameClass += " text-slate-500 font-medium pl-8";
+                    } else {
+                       nameClass += " text-[#323338] font-medium";
+                    }
+                    
+                    const cellClass = `border-r border-b border-[#e6e9ef] flex items-center justify-center transition-colors focus-within:ring-2 focus-within:ring-blue-400 focus-within:z-20 px-6 whitespace-nowrap overflow-hidden h-10 text-[13px] transition-colors ${rowBgClass}`;
+                    const actionClass = `border-b border-[#e6e9ef] flex items-center justify-end px-4 gap-2 transition-colors h-10 ${rowBgClass}`;
+
+                    return (
                     <div key={task.id} className="contents group/row">
-                      <div className="border-r border-b border-[#e6e9ef] flex items-center justify-center bg-white h-10 text-[13px] hover:bg-[#f0f4ff] transition-colors"><div className={cn("w-4 h-4 border rounded-sm transition-colors cursor-pointer", selectedTasks.has(task.id) ? "bg-blue-500 border-blue-500 shadow-sm" : "border-[#c3c6cd] bg-white group-hover/row:border-blue-400")} onClick={() => setSelectedTasks(prev => { const n = new Set(prev); if (n.has(task.id)) n.delete(task.id); else n.add(task.id); return n; })}>{selectedTasks.has(task.id) && <Check className="w-3 h-3 text-white m-auto" />}</div></div>
+                      <div className={`border-r border-b border-[#e6e9ef] flex items-center justify-center h-10 text-[13px] transition-colors ${rowBgClass}`}><div className={cn("w-4 h-4 border rounded-sm transition-colors cursor-pointer", selectedTasks.has(task.id) ? "bg-blue-500 border-blue-500 shadow-sm" : `border-[#c3c6cd] ${isParentRow?'bg-slate-50':'bg-white'} group-hover/row:border-blue-400`)} onClick={() => setSelectedTasks(prev => { const n = new Set(prev); if (n.has(task.id)) n.delete(task.id); else n.add(task.id); return n; })}>{selectedTasks.has(task.id) && <Check className="w-3 h-3 text-white m-auto" />}</div></div>
                       <div 
-                        className="border-r border-b border-[#e6e9ef] flex items-center px-4 gap-2 truncate text-[#323338] font-medium cursor-pointer select-none bg-white h-10 text-[13px] hover:bg-[#f0f4ff] transition-colors"
+                        className={nameClass}
                         onDoubleClick={() => {
                           setEditValue(task.name);
                           setEditingTask(task.id);
@@ -876,15 +981,16 @@ export default function TableView({
                            </span>
                         )}
                       </div>
-                      {board.columns.map(col => (<div key={col.id} className="border-r border-b border-[#e6e9ef] flex items-center justify-center transition-colors focus-within:ring-2 focus-within:ring-blue-400 focus-within:z-20 px-6 whitespace-nowrap overflow-hidden bg-white h-10 text-[13px] hover:bg-[#f0f4ff] transition-colors">{renderCell(task, col, group)}</div>))}
-                      <div className="border-b border-[#e6e9ef] flex items-center justify-end px-4 gap-2 transition-colors bg-white h-10 hover:bg-[#f0f4ff]">
+                      {board.columns.map(col => (<div key={col.id} className={cellClass.replace('font-bold', '')}>{renderCell(task, col, group)}</div>))}
+                      <div className={actionClass}>
                         <div className="flex items-center gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
                           <Copy className="w-3.5 h-3.5 text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => onDuplicateTask(task.id)} />
                           <Trash2 className="w-3.5 h-3.5 text-red-400 cursor-pointer hover:text-red-600" onClick={() => onDeleteTask(task.id)} />
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
+
 
                   {/* NEW TASK INPUT ROW */}
                   <div className="contents group/new">

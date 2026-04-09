@@ -11,6 +11,7 @@ import GanttView from '@/components/GanttView';
 import GanttJobsView from '@/components/GanttJobsView';
 import ExecDashboard from '@/components/ExecDashboard';
 import { supabase, fetchBoards, createBoard, createTask, updateTaskValue, createGroup, fetchTeamMembers } from '@/lib/supabase';
+import { format, parseISO, isValid, setMonth } from 'date-fns';
 import { toast } from 'sonner';
 import ImportDialog from '@/components/ImportDialog';
 import TeamView from '@/components/TeamView';
@@ -29,7 +30,7 @@ export default function Index() {
   const [loading, setLoading] = useState(true);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [automations, setAutomations] = useState<Automation[]>([]);
-  const [boardFilters, setBoardFilters] = useState<Record<string, { searchTerm: string, activeFilters: Record<string, string[]> }>>({});
+  const [boardFilters, setBoardFilters] = useState<Record<string, { searchTerm: string, activeFilters: Record<string, string[]>, selectedMonth: string }>>({});
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
 
   const isSample = useCallback((id: string) => 
@@ -49,10 +50,10 @@ export default function Index() {
   const currentFilter = useMemo(() => {
     // Garantimos que sempre pegamos o filtro correto, inclusive se o activeBoardId estiver em transição
     const key = activeBoardId || 'default';
-    return boardFilters[key] || { searchTerm: '', activeFilters: {} };
+    return boardFilters[key] || { searchTerm: '', activeFilters: {}, selectedMonth: String(new Date().getMonth()) };
   }, [activeBoardId, boardFilters]);
 
-  const { searchTerm, activeFilters } = currentFilter;
+  const { searchTerm, activeFilters, selectedMonth } = currentFilter;
 
   const persistBoard = async (boardToPersist: Board) => {
     try {
@@ -793,11 +794,15 @@ export default function Index() {
 
   const onSearchChange = useCallback((value: string) => {
     const key = activeBoardId || 'default';
-    setBoardFilters(prev => ({ ...prev, [key]: { ...(prev[key] || { searchTerm: '', activeFilters: {} }), searchTerm: value } }));
+    setBoardFilters(prev => ({ ...prev, [key]: { ...(prev[key] || { searchTerm: '', activeFilters: {}, selectedMonth: String(new Date().getMonth()) }), searchTerm: value } }));
   }, [activeBoardId]);
 
   const onFilterChange = useCallback((filters: Record<string, string[]>) => {
-    setBoardFilters(prev => ({ ...prev, [activeBoardId]: { ...(prev[activeBoardId] || { searchTerm: '', activeFilters: {} }), activeFilters: filters } }));
+    setBoardFilters(prev => ({ ...prev, [activeBoardId]: { ...(prev[activeBoardId] || { searchTerm: '', activeFilters: {}, selectedMonth: String(new Date().getMonth()) }), activeFilters: filters } }));
+  }, [activeBoardId]);
+
+  const onMonthChange = useCallback((month: string) => {
+    setBoardFilters(prev => ({ ...prev, [activeBoardId]: { ...(prev[activeBoardId] || { searchTerm: '', activeFilters: {}, selectedMonth: String(new Date().getMonth()) }), selectedMonth: month } }));
   }, [activeBoardId]);
 
   const handleCollapseAll = useCallback(() => {
@@ -823,9 +828,17 @@ export default function Index() {
     const s = (searchTerm || "").toLowerCase().trim();
     const isSearching = s.length > 0;
     const isFiltering = Object.values(activeFilters).some(v => v && v.length > 0);
+    // IMPORTANTE: O filtro de mês só influencia a Tabela e Gantt. 
+    // O Dashboard gerencia seu próprio filtro de mês interno para os KPIs, 
+    // mas precisa de todos os dados para o gráfico de Histórico.
+    const isMonthFilterActive = selectedMonth !== 'all' && viewMode !== 'dashboard';
+    
+    const now = new Date();
+    const currentMonthIdx = now.getMonth();
+    const targetMonthIdx = isMonthFilterActive ? parseInt(selectedMonth) : -1;
 
-    // 1. Caso base: sem filtros ativos
-    if (!isSearching && !isFiltering) {
+    // 1. Caso base: sem filtros ativos (Mas ainda aplicamos o filtro de mês se selecionado e não for dashboard)
+    if (!isSearching && !isFiltering && !isMonthFilterActive) {
       return {
         ...activeBoard,
         groups: activeBoard.groups.filter(g => !g.archived).map(g => ({
@@ -842,6 +855,28 @@ export default function Index() {
       
       const filteredTasks = group.tasks.filter(task => {
         if (task.archived) return false;
+
+        // C. Validar Mês (LOGICA DE LIMPEZA)
+        if (isMonthFilterActive) {
+          const isHistoryGroup = group.title.toLowerCase().includes('historico');
+          const itemDate = task.columnValues['timeline'] || task.columnValues['cronograma'] || task.columnValues['data'] || task.columnValues['c10']; // Tenta pegar data de entrega
+          
+          let dateObj = null;
+          if (itemDate) {
+            try {
+              dateObj = parseISO(String(itemDate));
+              if (!isValid(dateObj)) dateObj = null;
+            } catch(e) { dateObj = null; }
+          }
+
+          if (dateObj) {
+            if (dateObj.getMonth() !== targetMonthIdx) return false;
+          } else {
+            // Se não tem data, só mostramos se for o mês atual e NÃO for histórico
+            if (targetMonthIdx !== currentMonthIdx) return false;
+            if (isHistoryGroup) return false;
+          }
+        }
 
         // A. Validar Texto de Busca (MATCH GLOBAL)
         let passSearch = !isSearching || groupMatchesSearch || task.name.toLowerCase().includes(s);
@@ -895,7 +930,7 @@ export default function Index() {
       ...activeBoard,
       groups: processedGroups.filter(g => g.tasks.length > 0 || (isSearching && g.title.toLowerCase().includes(s)))
     };
-  }, [activeBoard, searchTerm, activeFilters]);
+  }, [activeBoard, searchTerm, activeFilters, selectedMonth, viewMode]);
 
   if (loading) {
     return (
@@ -977,7 +1012,7 @@ export default function Index() {
 
             {viewMode === 'gantt' && filteredBoard && <GanttView board={filteredBoard} />}
             {viewMode === 'ganttJobs' && filteredBoard && <GanttJobsView board={filteredBoard} />}
-            {viewMode === 'dashboard' && filteredBoard && <ExecDashboard board={filteredBoard} />}
+            {viewMode === 'dashboard' && filteredBoard && <ExecDashboard board={filteredBoard} selectedMonthExternal={selectedMonth} onMonthChangeExternal={onMonthChange} onBoardRefresh={() => fetchBoards().then(data => setBoards([...data, ...sampleBoards]))} />}
           </>
         )}
       </main>

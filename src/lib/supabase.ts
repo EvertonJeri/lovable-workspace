@@ -66,10 +66,10 @@ export async function createBoard(title: string) {
   return data;
 }
 
-export async function createTask(groupId: string, name: string) {
+export async function createTask(groupId: string, name: string, position?: number) {
   const { data, error } = await supabase
     .from('tasks')
-    .insert([{ group_id: groupId, name }])
+    .insert([{ group_id: groupId, name, ...(position !== undefined ? { position } : {}) }])
     .select()
     .single();
 

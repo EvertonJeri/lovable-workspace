@@ -1,9 +1,9 @@
 import { Task, TaskStatus, TaskPriority, STATUS_LABELS, PRIORITY_LABELS, BoardColumn, ColumnType } from '@/types/board';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { StatusBadge, PriorityBadge } from './StatusBadge';
-import { Calendar, User, Flag, Tag, Hash, Type, Link as LinkIcon, Paperclip, BarChart, Clock, Trash2 } from 'lucide-react';
+import { Calendar, User, Flag, Tag, Hash, Type, Link as LinkIcon, Paperclip, BarChart, Clock, Trash2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface TaskDialogProps {
@@ -62,32 +62,35 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate, onD
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] gap-0 p-0 overflow-hidden border-none shadow-2xl">
-        <div className="h-1.5 w-full bg-blue-500" />
+    <Dialog open={open} onOpenChange={onOpenChange => !onOpenChange && onClose()}>
+      <DialogContent className="sm:max-w-[700px] gap-0 p-0 overflow-hidden border-none shadow-2xl bg-white max-h-[90vh] flex flex-col">
+        <div className="h-1.5 w-full bg-[#0073ea]" />
         
-        <div className="p-6">
-          <DialogHeader className="mb-6">
+        <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
+          <DialogHeader className="mb-8">
              <input
-                className="text-2xl font-bold text-[#323338] bg-transparent border-none focus:ring-0 w-full p-0"
+                className="text-3xl font-bold text-[#323338] bg-transparent border-none focus:ring-0 w-full p-0 hover:bg-slate-50 rounded px-2 -ml-2 transition-colors"
                 value={task.name}
                 onChange={(e) => onUpdate({ ...task, name: e.target.value })}
+                placeholder="Nome da tarefa"
              />
           </DialogHeader>
 
-          <div className="space-y-6">
+          <div className="space-y-8">
             {columns.map((column) => {
               const Icon = getIcon(column.type);
               const value = task.columnValues[column.id];
 
               return (
-                <div key={column.id} className="flex items-start gap-4 group">
-                  <div className="flex items-center gap-2 w-32 shrink-0 pt-1.5">
-                    <Icon className="w-4 h-4 text-[#676879]" />
-                    <span className="text-sm text-[#676879]">{column.title}</span>
+                <div key={column.id} className="flex items-start gap-6 group">
+                  <div className="flex items-center gap-3 w-40 shrink-0 pt-1.5">
+                    <div className="p-1.5 bg-slate-50 rounded-md text-[#676879] group-hover:bg-slate-100 transition-colors">
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <span className="text-sm font-medium text-[#676879]">{column.title}</span>
                   </div>
                   
-                  <div className="flex-1">
+                  <div className="flex-1 min-h-[36px] flex items-center">
                     {column.type === 'status' && (
                       <StatusBadge 
                         status={value as TaskStatus || 'default'} 
@@ -125,7 +128,7 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate, onD
                           </div>
                         ))}
                         <button 
-                          className="text-xs text-blue-500 hover:underline flex items-center gap-1 p-1"
+                          className="text-xs text-blue-500 hover:bg-blue-50 px-2 py-1 rounded transition-colors"
                           onClick={() => {
                             const newPerson = { id: `p-${Date.now()}`, name: 'Novo Membro', avatar: `https://i.pravatar.cc/150?u=${Date.now()}` };
                             const current = Array.isArray(value) ? value : value ? [value] : [];
@@ -138,42 +141,60 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate, onD
                     )}
 
                     {column.type === 'timeline' && (
-                      <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                         <div className="flex flex-col gap-1">
-                            <span className="text-[10px] text-muted-foreground uppercase font-bold">Início</span>
-                            <input 
-                              type="date"
-                              className="text-xs text-[#323338] bg-transparent border-none focus:ring-0 p-0"
-                              value={value?.start || ''}
-                              onChange={(e) => updateColumnValue(column.id, { ...value, start: e.target.value })}
-                            />
-                         </div>
-                         <div className="w-px h-6 bg-slate-200" />
-                         <div className="flex flex-col gap-1">
-                            <span className="text-[10px] text-muted-foreground uppercase font-bold">Término</span>
-                            <input 
-                              type="date"
-                              className="text-xs text-[#323338] bg-transparent border-none focus:ring-0 p-0"
-                              value={value?.end || ''}
-                              onChange={(e) => updateColumnValue(column.id, { ...value, end: e.target.value })}
-                            />
-                         </div>
+                      <div className="flex items-center gap-4 w-full bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <div className="flex flex-col gap-1 flex-1">
+                             <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Início</span>
+                             <input 
+                               type="date"
+                               className="text-sm text-[#323338] bg-transparent border-none focus:ring-0 p-0 font-medium"
+                               value={value?.start || ''}
+                               onChange={(e) => updateColumnValue(column.id, { ...value, start: e.target.value })}
+                             />
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-slate-300" />
+                          <div className="flex flex-col gap-1 flex-1">
+                             <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Término</span>
+                             <input 
+                               type="date"
+                               className="text-sm text-[#323338] bg-transparent border-none focus:ring-0 p-0 font-medium"
+                               value={value?.end || ''}
+                               onChange={(e) => updateColumnValue(column.id, { ...value, end: e.target.value })}
+                             />
+                          </div>
+                          {(value?.start || value?.end) && (
+                            <button 
+                              onClick={() => updateColumnValue(column.id, null)}
+                              className="px-2 py-1 hover:bg-red-100 text-red-500 rounded text-[10px] font-bold uppercase transition-colors"
+                            >
+                              Limpar
+                            </button>
+                          )}
                       </div>
                     )}
 
                     {column.type === 'date' && (
-                      <input 
-                        type="date"
-                        className="text-sm text-[#323338] bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:ring-0 p-0"
-                        value={value || ''}
-                        onChange={(e) => updateColumnValue(column.id, e.target.value)}
-                      />
+                      <div className="flex items-center gap-3 w-full">
+                        <input 
+                          type="date"
+                          className="text-sm text-[#323338] font-medium bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:ring-0 p-1 transition-all"
+                          value={value || ''}
+                          onChange={(e) => updateColumnValue(column.id, e.target.value)}
+                        />
+                        {value && (
+                          <button 
+                            onClick={() => updateColumnValue(column.id, null)}
+                            className="px-2 py-1 hover:bg-red-100 text-red-500 rounded text-[10px] font-bold uppercase transition-colors"
+                          >
+                            Limpar
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {column.type === 'number' && (
                       <input 
                         type="number"
-                        className="text-sm text-[#323338] bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:ring-0 p-0 w-full"
+                        className="text-sm text-[#323338] font-medium bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:ring-0 p-1 w-full transition-all"
                         value={value || ''}
                         onChange={(e) => {
                           const val = parseFloat(e.target.value);
@@ -184,7 +205,7 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate, onD
 
                     {column.type === 'text' && (
                       <textarea 
-                        className="text-sm text-[#323338] bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-500 focus:ring-0 p-1 w-full rounded resize-none"
+                        className="text-sm text-[#323338] bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-500 focus:ring-0 p-1 w-full rounded resize-none min-h-[36px]"
                         rows={1}
                         value={value || ''}
                         onChange={(e) => updateColumnValue(column.id, e.target.value)}
@@ -193,50 +214,51 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate, onD
                     )}
 
                     {column.type === 'progress' && (
-                      <div className="flex items-center gap-3 w-full">
+                      <div className="flex items-center gap-4 w-full">
                         <input 
                           type="range"
                           min="0"
                           max="100"
-                          className="flex-1 h-1 bg-slate-200 rounded-full appearance-none cursor-pointer accent-green-500"
+                          className="flex-1 h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-[#00c875]"
                           value={value || 0}
                           onChange={(e) => updateColumnValue(column.id, parseInt(e.target.value))}
                         />
-                        <span className="text-sm text-[#676879] tabular-nums">{value || 0}%</span>
+                        <span className="text-sm font-bold text-[#676879] tabular-nums min-w-[40px] text-right">{value || 0}%</span>
                       </div>
                     )}
                   </div>
                 </div>
               );
             })}
-          <div className="mt-8 pt-6 border-t">
-             <div className="flex gap-6 mb-6">
-                <button className="pb-2 text-sm font-bold border-b-2 border-blue-500 text-blue-600">Atualizações</button>
-                <button className="pb-2 text-sm font-medium border-b-2 border-transparent text-[#676879] hover:text-[#323338]">Arquivos</button>
-                <button className="pb-2 text-sm font-medium border-b-2 border-transparent text-[#676879] hover:text-[#323338]">Atividade</button>
+          </div>
+
+          <div className="mt-12 pt-8 border-t border-slate-100">
+             <div className="flex gap-8 mb-8 border-b border-slate-100">
+                <button className="pb-3 text-sm font-bold border-b-2 border-blue-500 text-blue-600">Atualizações</button>
+                <button className="pb-3 text-sm font-semibold text-[#676879] hover:text-[#323338] border-b-2 border-transparent hover:border-slate-300 transition-colors">Arquivos</button>
+                <button className="pb-3 text-sm font-semibold text-[#676879] hover:text-[#323338] border-b-2 border-transparent hover:border-slate-300 transition-colors">Atividade</button>
              </div>
 
-             <div className="space-y-6">
-                <div className="relative">
+             <div className="space-y-8">
+                <div className="relative group">
                    <textarea 
-                     className="w-full p-4 bg-white border border-slate-200 rounded-xl text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none min-h-[100px] shadow-sm transition-all"
+                     className="w-full p-4 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none min-h-[120px] shadow-sm transition-all"
                      placeholder="Escreva uma atualização..."
                    />
                    <div className="absolute bottom-3 right-3 flex gap-2">
-                      <button className="p-1.5 hover:bg-slate-100 rounded-md text-slate-400">@</button>
-                      <button className="px-4 py-1 bg-blue-500 text-white rounded-md text-xs font-bold hover:bg-blue-600 transition-colors">Postar</button>
+                       <button className="px-4 py-2 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 transition-all shadow-md active:scale-95">Postar</button>
                    </div>
                 </div>
 
-                <div className="space-y-4">
-                   <div className="flex gap-3">
-                      <div className="w-8 h-8 rounded bg-orange-500 flex items-center justify-center text-white text-xs font-bold shrink-0">AS</div>
+                <div className="space-y-6">
+                   <div className="flex gap-4 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
+                      <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm">AS</div>
                       <div className="flex-1">
-                         <div className="flex items-center gap-2 mb-1">
+                         <div className="flex items-center gap-2 mb-2">
                             <span className="text-sm font-bold text-[#323338]">Ana Silva</span>
-                            <span className="text-[10px] text-slate-400 font-medium">Há 2 horas</span>
+                            <span className="text-[10px] text-slate-400 font-medium bg-slate-100 px-2 py-0.5 rounded-full">Há 2 horas</span>
                          </div>
-                         <p className="text-sm text-[#323338] bg-slate-50 p-3 rounded-lg border border-slate-100">
+                         <p className="text-sm text-[#323338] leading-relaxed">
                             Já finalizei o modelo 3D. Podem revisar na pasta do projeto?
                          </p>
                       </div>
@@ -244,23 +266,20 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate, onD
                 </div>
              </div>
           </div>
-          </div>
         </div>
 
-        <div className="p-4 bg-slate-50 border-t flex items-center justify-between">
-           <div className="flex items-center gap-2">
-              <button 
-                onClick={() => { onDelete(task.id); onClose(); }}
-                className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors flex items-center gap-2 text-xs font-medium"
-                title="Excluir tarefa"
-              >
-                <Trash2 className="w-4 h-4" />
-                Excluir tarefa
-              </button>
-           </div>
+        <div className="p-6 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+           <button 
+             onClick={() => { onDelete(task.id); onClose(); }}
+             className="px-4 py-2 hover:bg-red-50 text-red-500 rounded-lg transition-all flex items-center gap-2 text-xs font-bold group"
+           >
+             <Trash2 className="w-4 h-4 group-hover:shake" />
+             Excluir tarefa
+           </button>
+           
            <button 
              onClick={onClose}
-             className="px-6 py-2 bg-[#0073ea] text-white rounded-lg text-sm font-bold hover:bg-[#0060c2] transition-colors shadow-md active:scale-95"
+             className="px-8 py-2.5 bg-[#0073ea] text-white rounded-lg text-sm font-bold hover:bg-[#0060c2] transition-all shadow-lg active:scale-95 flex items-center gap-2"
            >
              Concluído
            </button>

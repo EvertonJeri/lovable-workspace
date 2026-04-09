@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { Board, Task } from '@/types/board';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList, Cell,
@@ -6,10 +6,12 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, TrendingDown, CheckCircle, 
-  Briefcase, Activity, Target, Zap, History, Layout
+  Briefcase, Activity, Target, Zap, History, Layout, Archive
 } from 'lucide-react';
-import { format, isSameMonth, parseISO, startOfMonth, subMonths, getMonth, setMonth, getDaysInMonth, getYear } from 'date-fns';
+import { format, parseISO, startOfMonth, subMonths, getMonth, setMonth, getDaysInMonth, getYear, endOfMonth, lastDayOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { createTask, updateTaskValue } from '@/lib/supabase';
+import { toast } from 'sonner';
 
 // Função utilitária para calcular a Linha de Tendência Linear (Regressão)
 const calculateTrend = (data: any[], key: string) => {
@@ -36,15 +38,19 @@ const calculateTrend = (data: any[], key: string) => {
 
 interface ExecDashboardProps {
   board: Board;
+  selectedMonthExternal?: string;
+  onMonthChangeExternal?: (month: string) => void;
+  onBoardRefresh?: () => void;
 }
 
 const TABLEAU10 = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'];
 
-export default function ExecDashboard({ board }: ExecDashboardProps) {
+export default function ExecDashboard({ board, selectedMonthExternal, onMonthChangeExternal, onBoardRefresh }: ExecDashboardProps) {
   const [selectedWeek, setSelectedWeek] = useState<string>('all');
-  const [selectedMonth, setSelectedMonth] = useState<string>(String(new Date().getMonth()));
+  const selectedMonth = selectedMonthExternal || String(new Date().getMonth());
   const [monthlyGoal, setMonthlyGoal] = useState<number>(300000);
   const [includeSaturdays, setIncludeSaturdays] = useState<boolean>(false);
+  const [isClosingMonth, setIsClosingMonth] = useState(false);
 
   // Função para calcular dias úteis reais por semana no mês selecionado
   const getWeekDaysData = () => {
@@ -78,8 +84,370 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
 
   const normalizeSearch = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
 
+  // Helper: find column ID by normalized title
+  const findColId = useCallback((titles: string[]) => {
+    for (const t of titles) {
+      const norm = normalizeSearch(t);
+      const col = board.columns.find(c => normalizeSearch(c.title) === norm);
+      if (col) return col.id;
+    }
+    return titles[0]; // fallback to first name as key
+  }, [board.columns]);
+
+  // === INICIALIZAR SUB-LINHAS DO HISTÓRICO ===
+  // Cria antecipadamente as linhas "Produção - mês/ano" e "Montagem - mês/ano"
+  // para todos os 12 meses, posicionadas logo após a linha pai correspondente.
+  const initializeHistorySubRows = useCallback(async () => {
+    try {
+      const histGroup = board.groups.find(g => normalizeSearch(g.title).includes('historico'));
+      if (!histGroup) {
+        toast.error('Grupo Histórico não encontrado.');
+        return;
+      }
+
+      const dateColId = findColId(['dataEntrega', 'entrega', 'data de entrega', 'prazo', 'DATA DE ENTREGA']);
+      const currentYear = new Date().getFullYear();
+      let created = 0;
+
+      // Ordenar as linhas pai por orderIndex para ter referência de posição
+      const parentTasks = [...histGroup.tasks].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+      for (const parentTask of parentTasks) {
+        // Só processar linhas pai (não são sub-linhas)
+        const nameNorm = normalizeSearch(parentTask.name);
+        if (nameNorm.startsWith('producao') || nameNorm.startsWith('montagem')) continue;
+
+        // Extrair ano do nome se possível
+        let taskYear = currentYear;
+        const yearMatch = parentTask.name.match(/\b(20\d{2})\b/);
+        if (yearMatch) {
+          taskYear = parseInt(yearMatch[1]);
+        }
+
+        // Descobrir o mês desta linha pelo nome ou pela data
+        let monthIdx = -1;
+        const dateVal = parentTask.columnValues[dateColId] as string;
+        if (dateVal) {
+          try {
+            const s = String(dateVal);
+            let d: Date;
+            if (s.includes('/') && s.length <= 10) {
+              const [dd, mm, yy] = s.split('/');
+              d = new Date(parseInt(yy), parseInt(mm)-1, parseInt(dd));
+            } else { d = parseISO(s); }
+            monthIdx = d.getMonth();
+          } catch {}
+        }
+        // Fallback: tentar pelo nome da tarefa (ex: "Janeiro / 2026")
+        if (monthIdx === -1) {
+          const monthNames = ['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+          monthIdx = monthNames.findIndex(m => nameNorm.includes(m));
+        }
+        if (monthIdx === -1) continue;
+
+        const monthLabel = format(new Date(taskYear, monthIdx, 1), 'MMMM/yyyy', { locale: ptBR });
+        const lastDayStr = format(lastDayOfMonth(new Date(taskYear, monthIdx, 1)), 'yyyy-MM-dd');
+
+        const subDefs = [
+          { name: `Produção - ${monthLabel}` },
+          { name: `Montagem - ${monthLabel}` },
+        ];
+
+        for (const sub of subDefs) {
+          // Check ignoring case and accents
+          const subNameNorm = normalizeSearch(sub.name);
+          const exists = histGroup.tasks.some(t => normalizeSearch(t.name) === subNameNorm);
+          if (!exists) {
+            try {
+              const newSub = await createTask(histGroup.id, sub.name);
+              await updateTaskValue(newSub.id, dateColId, lastDayStr);
+              created++;
+            } catch (err) {
+              console.warn(`Erro ao criar ${sub.name}:`, err);
+            }
+          }
+        }
+      }
+
+      if (created > 0) {
+        toast.success(`${created} sub-linhas criadas no Histórico!`, {
+          description: 'Produção e Montagem prontas para receber os fechamentos mensais.'
+        });
+        onBoardRefresh?.();
+      } else {
+        toast.info('Todas as sub-linhas já existem ou nenhum mês válido foi encontrado.', {
+          description: 'Não havia nada de novo para criar.'
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao inicializar sub-linhas.');
+    }
+  }, [board.groups, findColId, onBoardRefresh]);
+
+  // Verificar na inicialização se as sub-linhas já existem
+  useEffect(() => {
+    const histGroup = board.groups.find(g => normalizeSearch(g.title).includes('historico'));
+    if (!histGroup || histGroup.tasks.length === 0) return;
+
+    // Contar sub-linhas existentes
+    const subRowCount = histGroup.tasks.filter(t => {
+      const n = normalizeSearch(t.name);
+      return n.startsWith('producao') || n.startsWith('montagem');
+    }).length;
+
+    // Se há linhas pai mas nenhuma sub-linha, inicializar
+    const parentCount = histGroup.tasks.length - subRowCount;
+    if (parentCount > 0 && subRowCount === 0) {
+      setTimeout(() => initializeHistorySubRows(), 1500);
+    }
+  }, [board.id]);
+
+  const closeMonthToHistory = useCallback(async (monthIdx: number, year: number, forceSubRows = false) => {
+    const histGroup = board.groups.find(g => normalizeSearch(g.title).includes('historico'));
+    if (!histGroup) {
+      toast.error('Grupo "Histórico de Desempenho" não encontrado.');
+      return false;
+    }
+
+    const parseNum = (v: any): number => {
+      if (!v && v !== 0) return 0;
+      if (typeof v === 'number') return v;
+      return parseFloat(String(v).replace(/[R$\s%]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+    };
+
+    const dateColId = findColId(['dataEntrega', 'entrega', 'data de entrega', 'prazo', 'DATA DE ENTREGA']);
+    const statusColId = findColId(['status', 'STATUS']);
+
+    // Procurar linha EXISTENTE do mês no histórico (pelo campo DATA DE ENTREGA)
+    const existingTask = histGroup.tasks.find(t => {
+      const dateVal = t.columnValues[dateColId] as string;
+      if (!dateVal) return false;
+      try {
+        let d: Date;
+        const s = String(dateVal);
+        if (s.includes('/') && s.length <= 10) {
+          const [dd, mm, yy] = s.split('/');
+          d = new Date(parseInt(yy), parseInt(mm)-1, parseInt(dd));
+        } else {
+          d = parseISO(s);
+        }
+        return d.getMonth() === monthIdx && d.getFullYear() === year;
+      } catch { return false; }
+    });
+
+    // Verificar se já foi fechado (só bloqueia se não for forceSubRows)
+    if (!forceSubRows && existingTask) {
+      const statusNorm = normalizeSearch(String(existingTask.columnValues[statusColId] || ''));
+      const alreadyClosed = statusNorm.includes('concluido') || statusNorm.includes('feito');
+      if (alreadyClosed) {
+        return false; // Já fechado, não sobrescrever
+      }
+    }
+
+    // Calcular produção do mês por item ativo (excluindo histórico)
+    const semanas = ['semana01', 'semana02', 'semana03', 'semana04', 'semana05'] as const;
+    const fabByWeek: Record<string, number> = { semana01: 0, semana02: 0, semana03: 0, semana04: 0, semana05: 0 };
+    const monByWeek: Record<string, number> = { semana01: 0, semana02: 0, semana03: 0, semana04: 0, semana05: 0 };
+
+    const groupTaskCount: Record<string, number> = {};
+    board.groups.forEach(g => { groupTaskCount[g.id] = g.tasks.filter(t => !(t as any).archived).length; });
+
+    board.groups.forEach(g => {
+      if (normalizeSearch(g.title).includes('historico')) return;
+      g.tasks.forEach(t => {
+        const cv = t.columnValues;
+        const getVal = (keys: string[]) => {
+          for (const k of keys) {
+            if (cv[k] !== undefined) return cv[k];
+            const col = board.columns.find(c => normalizeSearch(c.title) === normalizeSearch(k));
+            if (col && cv[col.id] !== undefined) return cv[col.id];
+          }
+          return '';
+        };
+
+        const dateRaw = getVal(['dataEntrega', 'entrega', 'data de entrega', 'prazo']);
+        if (!dateRaw) return;
+        let taskDate: Date | null = null;
+        try {
+          const s = String(dateRaw);
+          if (s.includes('/') && s.length <= 10) {
+            const [d, m, y] = s.split('/');
+            taskDate = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+          } else { taskDate = parseISO(s); }
+        } catch { return; }
+        if (!taskDate || taskDate.getMonth() !== monthIdx || taskDate.getFullYear() !== year) return;
+
+        const orado = parseNum(getVal(['orado', 'orcado', 'budget', 'orçamento', 'valor']));
+        const statusRaw = normalizeSearch(String(getVal(['status']) || ''));
+        const isConcluido = statusRaw.includes('concluido') || statusRaw.includes('feito') || statusRaw.includes('done') || statusRaw.includes('pago');
+        const isMontagem = groupTaskCount[g.id] === 1;
+        const target = isMontagem ? monByWeek : fabByWeek;
+
+        const weeklyPctSum = semanas.reduce((s, k) => s + parseNum(getVal([k])), 0);
+        if (isConcluido) {
+          if (weeklyPctSum > 0) {
+            semanas.forEach(k => { target[k] += (parseNum(getVal([k])) * orado) / 100; });
+          } else {
+            const lastSem = semanas.slice().reverse().find(k => parseNum(getVal([k])) > 0) || 'semana05';
+            target[lastSem] += orado;
+          }
+        } else {
+          semanas.forEach(k => { target[k] += (parseNum(getVal([k])) * orado) / 100; });
+        }
+      });
+    });
+
+    const totalFabrica = Object.values(fabByWeek).reduce((a, b) => a + b, 0);
+    const totalMontagem = Object.values(monByWeek).reduce((a, b) => a + b, 0);
+    const totalGeral = totalFabrica + totalMontagem;
+
+    if (totalGeral === 0) return false;
+
+    const monthName = format(new Date(year, monthIdx, 1), 'MMMM yyyy', { locale: ptBR });
+
+    try {
+      setIsClosingMonth(true);
+
+      let taskId: string;
+      if (existingTask) {
+        // ATUALIZAR linha existente (ou apenas criar sub-linhas se forceSubRows)
+        taskId = existingTask.id;
+      } else {
+        // CRIAR nova linha apenas se não existe nenhuma para este mês
+        const lastDay = format(lastDayOfMonth(new Date(year, monthIdx, 1)), 'yyyy-MM-dd');
+        const newTask = await createTask(histGroup.id, monthName);
+        taskId = newTask.id;
+        await updateTaskValue(taskId, dateColId, lastDay);
+      }
+
+      // Salvar totais semanais (Fábrica + Montagem) — apenas se não for forceSubRows
+      if (!forceSubRows) {
+        for (const sem of semanas) {
+          const total = (fabByWeek[sem] || 0) + (monByWeek[sem] || 0);
+          await updateTaskValue(taskId, findColId([sem, `${sem.replace('semana', 'semana ')}`, `${sem} (%)`]), total);
+        }
+        await updateTaskValue(taskId, 'fabricaTotal', totalFabrica);
+        await updateTaskValue(taskId, 'montagemTotal', totalMontagem);
+        await updateTaskValue(taskId, statusColId, 'Concluído');
+      }
+
+      // === CRIAR/ATUALIZAR LINHAS DE BREAKDOWN (Produção e Montagem) ===
+      const lastDayStr = format(lastDayOfMonth(new Date(year, monthIdx, 1)), 'yyyy-MM-dd');
+      const monthLabel = format(new Date(year, monthIdx, 1), 'MMMM/yyyy', { locale: ptBR });
+      // Posição da linha pai para colocar sub-linhas logo abaixo
+      const parentOrderIndex = existingTask ? (existingTask.orderIndex ?? 0) : 999;
+
+      const subRows = [
+        { name: `Produção - ${monthLabel}`, byWeek: fabByWeek, total: totalFabrica, pos: parentOrderIndex + 0.1 },
+        { name: `Montagem - ${monthLabel}`, byWeek: monByWeek, total: totalMontagem, pos: parentOrderIndex + 0.2 },
+      ];
+
+      for (const sub of subRows) {
+        if (sub.total <= 0) continue;
+
+        // Verificar se sub-linha já existe
+        const existingSubRow = histGroup.tasks.find(t => t.name === sub.name);
+        let subTaskId: string;
+        if (existingSubRow) {
+          subTaskId = existingSubRow.id;
+        } else {
+          // Criar com posição logo após a linha pai
+          const newSub = await createTask(histGroup.id, sub.name, sub.pos);
+          subTaskId = newSub.id;
+          await updateTaskValue(subTaskId, dateColId, lastDayStr);
+        }
+
+        // Salvar valores semanais individuais
+        for (const sem of semanas) {
+          const v = sub.byWeek[sem] || 0;
+          await updateTaskValue(subTaskId, findColId([sem, `${sem.replace('semana', 'semana ')}`, `${sem} (%)`]), v);
+        }
+        await updateTaskValue(subTaskId, statusColId, 'Concluído');
+      }
+
+      toast.success(`Mês de ${monthName} ${forceSubRows ? 'sub-linhas criadas!' : 'fechado!'}`, {
+        description: `Fábrica: ${totalFabrica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} | Montagem: ${totalMontagem.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
+      });
+
+      onBoardRefresh?.();
+      return true;
+    } catch (err) {
+      console.error('Erro ao fechar mês:', err);
+      toast.error('Erro ao fechar o mês no histórico.');
+      return false;
+    } finally {
+      setIsClosingMonth(false);
+    }
+  }, [board, findColId, onBoardRefresh]);
+
+  // Auto-detectar meses passados com linha no histórico mas sem dados (status != Concluído)
+  useEffect(() => {
+    const histGroup = board.groups.find(g => normalizeSearch(g.title).includes('historico'));
+    if (!histGroup) return;
+
+    const dateColId = findColId(['dataEntrega', 'entrega', 'data de entrega', 'prazo', 'DATA DE ENTREGA']);
+    const statusColId = findColId(['status', 'STATUS']);
+    const now = new Date();
+
+    // Verificar os últimos 6 meses
+    for (let i = 1; i <= 6; i++) {
+      const targetDate = subMonths(now, i);
+      const mIdx = targetDate.getMonth();
+      const yr = targetDate.getFullYear();
+
+      // Procurar linha do mês no histórico
+      const row = histGroup.tasks.find(t => {
+        const dateVal = t.columnValues[dateColId] as string;
+        if (!dateVal) return false;
+        try {
+          let d: Date;
+          const s = String(dateVal);
+          if (s.includes('/') && s.length <= 10) {
+            const [dd, mm, yy] = s.split('/');
+            d = new Date(parseInt(yy), parseInt(mm)-1, parseInt(dd));
+          } else { d = parseISO(s); }
+          return d.getMonth() === mIdx && d.getFullYear() === yr;
+        } catch { return false; }
+      });
+
+      if (row) {
+        // Verificar se já está fechado
+        const statusNorm = normalizeSearch(String(row.columnValues[statusColId] || ''));
+        const isClosed = statusNorm.includes('concluido') || statusNorm.includes('feito');
+
+        if (!isClosed) {
+          // Mês não fechado → fechar
+          setTimeout(() => closeMonthToHistory(mIdx, yr), i * 1000);
+        } else {
+          // Mês já fechado → verificar se sub-linhas existem
+          const monthLabel = format(new Date(yr, mIdx, 1), 'MMMM/yyyy', { locale: ptBR });
+          const hasProducaoRow = histGroup.tasks.some(t => t.name === `Produção - ${monthLabel}`);
+          const hasMontagemRow = histGroup.tasks.some(t => t.name === `Montagem - ${monthLabel}`);
+
+          if (!hasProducaoRow && !hasMontagemRow) {
+            // Sub-linhas não existem → criar sem alterar a linha principal
+            setTimeout(() => closeMonthToHistory(mIdx, yr, true), i * 1200);
+          }
+        }
+      }
+    }
+  }, [board.id, board.groups]); // Roda ao trocar de board ou quando tasks mudam
+
   const allItems = useMemo(() => {
+    // Contar tasks por grupo antes de mapear
+    const groupTaskCount: Record<string, number> = {};
+    board.groups.forEach(g => { groupTaskCount[g.id] = g.tasks.length; });
+
     return board.groups.flatMap(g => g.tasks.map(t => {
+      const gTitleNorm = normalizeSearch(g.title);
+      const isHistoryGroup = gTitleNorm.includes('historico');
+      // Sub-linhas de breakdown ("Produção - X" e "Montagem - X") não devem ser contabilizadas nos totais
+      const tNameNorm = normalizeSearch(t.name);
+      const isHistorySubrow = isHistoryGroup && (tNameNorm.startsWith('producao') || tNameNorm.startsWith('montagem'));
+      // Regra: 1 tarefa no grupo = Montagem/Desmontagem, 2+ = Produção (Fábrica)
+      const isMontagem = !isHistoryGroup && groupTaskCount[g.id] === 1;
+      
       const val = (key: string, alternatives: string[]) => {
         if (t.columnValues[key] !== undefined) return t.columnValues[key];
         for (const alt of [key, ...alternatives]) {
@@ -136,7 +504,13 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
         semana05,
         mesAnterior,
         dataEntrega,
-        status: String(val('status', ['status'])) || 'default'
+        status: String(val('status', ['status'])) || 'default',
+        isHistory: isHistoryGroup,
+        isHistorySubrow,
+        isMontagem,
+        // Breakdown salvo no fechamento automático
+        fabricaTotal: parseNum(val('fabricaTotal', ['fabricaTotal'])),
+        montagemTotal: parseNum(val('montagemTotal', ['montagemTotal'])),
       };
     }));
   }, [board]);
@@ -184,41 +558,40 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
 
   const workItems = useMemo(() => {
     return allItems.filter(item => {
-      const isHistoryItem = historyGroupId && item.groupId === historyGroupId;
-      
       // Regra: Itens de Histórico só entram se o mês selecionado já foi concluído
-      if (isHistoryItem && !isSelectedMonthPast && selectedMonth !== 'all') return false;
-      
+      if (item.isHistory) {
+        // Ignorar rigorosamente sub-linhas de Produção/Montagem
+        if ((item as any).isHistorySubrow) return false;
+        
+        if (selectedMonth === 'all') return true;
+        if (!item.dataEntrega) return false;
+        // Itens de histórico devem bater exatamente com o mês selecionado
+        return getMonth(item.dataEntrega) === parseInt(selectedMonth) && isSelectedMonthPast;
+      }
+
       if (!item.name && !item.subitemName) return false;
-      if (selectedMonth === 'all') return true;
       
-      // Regra da data de entrega (Somente mês selecionado)
-      if (!item.dataEntrega) return false;
-      return getMonth(item.dataEntrega) === parseInt(selectedMonth);
+      // Para itens normais, relaxamos a regra da data de entrega para permitir que a produção semanal 
+      // seja contabilizada independentemente do prazo final.
+      return true;
     });
-  }, [allItems, selectedMonth, historyGroupId, isSelectedMonthPast]);
+  }, [allItems, selectedMonth, isSelectedMonthPast]);
 
   const {
-    uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes
+    uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes, weeklyBreakdown, breakdownTotals
   } = useMemo(() => {
     // 0. Valor Projetado (Entrega no Mês)
     let valorProjetadoMes = 0;
     if (selectedMonth !== 'all') {
       const monthIdx = parseInt(selectedMonth);
-      const groupsInMonth = new Set<string>();
       allItems.forEach(item => {
-        const isHistory = historyGroupId && item.groupId === historyGroupId;
-        if (isHistory && !isSelectedMonthPast) return;
+        if (item.isHistory) {
+          if (!isSelectedMonthPast) return;
+          if ((item as any).isHistorySubrow) return; // evitar duplicação do histórico
+        }
         
         if (item.dataEntrega && getMonth(item.dataEntrega) === monthIdx) {
-          groupsInMonth.add(item.groupId);
-        }
-      });
-      groupsInMonth.forEach(id => {
-        const g = board.groups.find(bg => bg.id === id);
-        if (g) {
-          const groupValue = g.budget || allItems.filter(i => i.groupId === id).reduce((s, t) => s + (t.orado || 0), 0);
-          valorProjetadoMes += groupValue;
+          valorProjetadoMes += (item.orado || 0);
         }
       });
     }
@@ -228,51 +601,109 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       activePercentual: selectedWeek === 'all' ? item.percentual : (item[selectedWeek as keyof typeof item] as number || 0)
     }));
 
-    const projSet = new Set(activeItems.map(i => i.groupId));
+    const isSelectedCurrentMonth = selectedMonth !== 'all' && parseInt(selectedMonth) === now.getMonth();
+
+    // Itens filtrados para KPIs de Projetos e Conclusão (Escopo do Mês)
+    const scopedItems = selectedMonth === 'all' ? activeItems : activeItems.filter(item => {
+      // Se o item não tem data de entrega, consideramos como oficial apenas se estivermos vendo o mês atual
+      if (!item.dataEntrega) return !item.isHistory && isSelectedCurrentMonth;
+      return getMonth(item.dataEntrega) === parseInt(selectedMonth);
+    });
+
+    const projSet = new Set(scopedItems.map(i => i.groupId));
     const uniqueProjects = projSet.size;
 
-    const percentSum = activeItems.reduce((acc, curr) => acc + curr.activePercentual, 0);
-    const conclusaoGeral = activeItems.length > 0 ? percentSum / activeItems.length : 0;
+    const percentSum = scopedItems.reduce((acc, curr) => acc + curr.activePercentual, 0);
+    const conclusaoGeral = scopedItems.length > 0 ? percentSum / scopedItems.length : 0;
 
     const semanas = ['semana01', 'semana02', 'semana03', 'semana04', 'semana05'] as const;
     const valueByWeek: Record<string, number> = { semana01: 0, semana02: 0, semana03: 0, semana04: 0, semana05: 0 };
     
+    // Mapear também por tipo (Produção vs Montagem)
+    const valueByWeekFabrica: Record<string, number> = { semana01: 0, semana02: 0, semana03: 0, semana04: 0, semana05: 0 };
+    const valueByWeekMontagem: Record<string, number> = { semana01: 0, semana02: 0, semana03: 0, semana04: 0, semana05: 0 };
+
     activeItems.forEach(item => {
-      const isHistory = historyGroupId && item.groupId === historyGroupId;
+      const isHistory = item.isHistory;
       const budget = item.orado || 0;
       const statusNorm = normalizeSearch(item.status);
       const isConcluido = statusNorm.includes('concluido') || statusNorm.includes('feito') || statusNorm.includes('done') || statusNorm.includes('pago');
+      const targetMap = (item as any).isMontagem ? valueByWeekMontagem : valueByWeekFabrica;
 
-      const isCurrentRealMonth = item.dataEntrega && getMonth(item.dataEntrega) === now.getMonth();
-      const shouldShowInWeekly = selectedMonth === 'all' ? isCurrentRealMonth : true;
+      const isCurrentRealMonth = !item.dataEntrega || getMonth(item.dataEntrega) === now.getMonth();
+      const shouldShowInWeekly = selectedMonth === 'all' ? isCurrentRealMonth : (item.dataEntrega ? getMonth(item.dataEntrega) === parseInt(selectedMonth) : isSelectedCurrentMonth);
       if (!shouldShowInWeekly) return;
 
       if (isHistory) {
-        semanas.forEach(sem => valueByWeek[sem] += (item[sem] || 0));
+        semanas.forEach(sem => { valueByWeek[sem] += (item[sem] || 0); targetMap[sem] += (item[sem] || 0); });
       } else if (isConcluido) {
         const weeklyPctSum = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
         if (weeklyPctSum > 0) {
-          semanas.forEach(sem => valueByWeek[sem] += ((item[sem] || 0) * budget) / 100);
+          semanas.forEach(sem => { const v = ((item[sem] || 0) * budget) / 100; valueByWeek[sem] += v; targetMap[sem] += v; });
         } else {
           const lastSem = item.semana05 ? 'semana05' : item.semana04 ? 'semana04' : item.semana03 ? 'semana03' : item.semana02 ? 'semana02' : 'semana01';
           valueByWeek[lastSem] += budget;
+          targetMap[lastSem] += budget;
         }
       } else {
-        semanas.forEach(sem => valueByWeek[sem] += ((item[sem] || 0) * budget) / 100);
+        semanas.forEach(sem => { const v = ((item[sem] || 0) * budget) / 100; valueByWeek[sem] += v; targetMap[sem] += v; });
       }
     });
 
-    const totalValueByWeek = Object.entries(valueByWeek).map(([name, val]) => ({ name: name.replace('semana0', 'Semana '), key: name, valor: val }));
+    const totalValueByWeek = Object.entries(valueByWeek).map(([name, val]) => ({ 
+      name: name.replace('semana0', 'Semana '), 
+      key: name, 
+      valor: val,
+      fabrica: valueByWeekFabrica[name] || 0,
+      montagem: valueByWeekMontagem[name] || 0,
+    }));
+
+    // Tabela de Breakdown por tipo
+    const weeklyBreakdown = semanas.map((sem, i) => {
+      const total = valueByWeek[sem];
+      const fabrica = valueByWeekFabrica[sem];
+      const montagem = valueByWeekMontagem[sem];
+      return {
+        label: `Semana ${i + 1}`,
+        total,
+        fabrica,
+        montagem,
+        pctFabrica: total > 0 ? (fabrica / total) * 100 : 0,
+        pctMontagem: total > 0 ? (montagem / total) * 100 : 0,
+      };
+    }).filter(w => w.total > 0);
+
+    // Totais gerais
+    const totalGeral = Object.values(valueByWeek).reduce((a, b) => a + b, 0);
+    const totalFabrica = Object.values(valueByWeekFabrica).reduce((a, b) => a + b, 0);
+    const totalMontagem = Object.values(valueByWeekMontagem).reduce((a, b) => a + b, 0);
+    const breakdownTotals = {
+      total: totalGeral,
+      fabrica: totalFabrica,
+      montagem: totalMontagem,
+      pctFabrica: totalGeral > 0 ? (totalFabrica / totalGeral) * 100 : 0,
+      pctMontagem: totalGeral > 0 ? (totalMontagem / totalGeral) * 100 : 0,
+    };
+
 
     let valueMesAnterior = 0;
     const prevMonthIdx = selectedMonth === 'all' ? -1 : (parseInt(selectedMonth) - 1 + 12) % 12;
     if (prevMonthIdx !== -1) {
       allItems.forEach(item => {
+        // Ignorar as sub-linhas filhas de histórico no total, pois a linha pai do mês já traz a soma cheia
+        if (item.isHistory && (item as any).isHistorySubrow) return;
+        
         if (item.dataEntrega && getMonth(item.dataEntrega) === prevMonthIdx) {
-          const isConcluido = normalizeSearch(item.status).includes('concluido');
-          if (isConcluido) valueMesAnterior += item.orado || 0;
-          else {
-            const weeklySum = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
+          const isHistory = item.isHistory;
+          const statusNorm = normalizeSearch(item.status);
+          const isConcluido = statusNorm.includes('concluido') || statusNorm.includes('feito') || statusNorm.includes('done') || statusNorm.includes('pago');
+          const weeklySum = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
+
+          if (isHistory) {
+            valueMesAnterior += (weeklySum || item.orado || 0);
+          } else if (isConcluido) {
+            valueMesAnterior += item.orado || 0;
+          } else {
             valueMesAnterior += (weeklySum * (item.orado || 0)) / 100;
           }
         }
@@ -280,7 +711,7 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
     }
 
     const gs: Record<string, any> = {};
-    activeItems.forEach(i => {
+    scopedItems.forEach(i => {
       if (!gs[i.groupId]) gs[i.groupId] = { id: i.groupId, name: i.groupName, percentSum: 0, oradoSum: 0, count: 0, pendentes: 0 };
       gs[i.groupId].percentSum += i.activePercentual;
       gs[i.groupId].oradoSum += i.orado || 0;
@@ -292,11 +723,20 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
     const historicalData: any[] = [];
     if (historyGroup) {
       const monthlyTotals: Record<number, number> = {};
+      const monthlyFabrica: Record<number, number> = {};
+      const monthlyMontagem: Record<number, number> = {};
       allItems.forEach(item => {
-        if (item.groupId === historyGroup.id && item.dataEntrega) {
+        // Excluir sub-linhas do histórico (Produção - X, Montagem - X) para não duplicar
+        if (item.isHistory && (item as any).isHistorySubrow) return;
+        if (item.isHistory && item.dataEntrega) {
           const m = getMonth(item.dataEntrega);
           const weeklySumValue = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
           monthlyTotals[m] = (monthlyTotals[m] || 0) + (weeklySumValue || item.orado || 0);
+          // Ler fabricaTotal e montagemTotal salvos no fechamento automático
+          const fab = (item as any).fabricaTotal || 0;
+          const mon = (item as any).montagemTotal || 0;
+          monthlyFabrica[m] = (monthlyFabrica[m] || 0) + fab;
+          monthlyMontagem[m] = (monthlyMontagem[m] || 0) + mon;
         }
       });
       
@@ -306,16 +746,20 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
       historicalData.push(...Array.from({ length: 12 }).map((_, i) => {
         const goal = monthlyGoals[i]?.value || 0;
         const total = monthlyTotals[i] || 0;
+        const fabrica = monthlyFabrica[i] || 0;
+        const montagem = monthlyMontagem[i] || 0;
         return { 
           name: format(setMonth(new Date(), i), 'MMM', { locale: ptBR }), 
           valor: total,
+          fabrica,
+          montagem,
           meta: goal,
           isCurrent: i === now.getMonth()
         };
       }).filter(h => h.valor > 0 || h.meta > 0 || h.isCurrent));
     }
 
-    return { uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes };
+    return { uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes, weeklyBreakdown, breakdownTotals };
   }, [workItems, selectedWeek, board.groups, allItems, historyGroupId, selectedMonth, isSelectedMonthPast, now]);
 
 
@@ -429,9 +873,17 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <label className="text-sm text-slate-600 font-medium whitespace-nowrap">Mês:</label>
-            <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="border-slate-300 rounded-md shadow-sm text-sm p-1.5 focus:border-blue-500 focus:ring-blue-500 bg-white">
+            <select 
+              value={selectedMonth} 
+              onChange={(e) => onMonthChangeExternal?.(e.target.value)} 
+              className="border-slate-300 rounded-md shadow-sm text-sm p-1.5 focus:border-blue-500 focus:ring-blue-500 bg-white"
+            >
               <option value="all">Todos os Meses</option>
-              {Array.from({ length: 12 }).map((_, i) => <option key={i} value={i}>{format(setMonth(new Date(), i), 'MMMM', { locale: ptBR })}</option>)}
+              {Array.from({ length: 12 }).map((_, i) => (
+                <option key={i} value={i}>
+                  {format(setMonth(new Date(), i), 'MMMM', { locale: ptBR })}
+                </option>
+              ))}
             </select>
           </div>
           <div className="flex items-center gap-2">
@@ -441,6 +893,17 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
               {['01','02','03','04','05'].map(s => <option key={s} value={`semana${s}`}>Semana {parseInt(s)}</option>)}
             </select>
           </div>
+          <button
+            onClick={() => {
+              const prevDate = subMonths(new Date(), 1);
+              closeMonthToHistory(prevDate.getMonth(), prevDate.getFullYear());
+            }}
+            disabled={isClosingMonth}
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold rounded-md transition-all shadow-sm active:scale-95 disabled:opacity-50"
+          >
+            <Archive size={14} />
+            {isClosingMonth ? 'Fechando...' : 'Fechar Mês'}
+          </button>
         </div>
       </div>
 
@@ -460,14 +923,10 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
           </div>
         </div>
 
-        <div className="xl:col-span-2 h-full">
+        <div className="xl:col-span-3 h-full">
           <KPICard title={`Produção (${currentMonthName})`} value={formatBRL(totalFilteredValue)} subtitle={selectedWeek === 'all' ? `Total acumulado` : `Semana ${selectedWeek.replace('semana0', '')}`} icon={<Activity size={20} className="text-emerald-500"/>} />
         </div>
         
-        <div className="xl:col-span-2 h-full">
-          <KPICard title={`Planejado (${currentMonthName})`} value={formatBRL(monthlyGoal)} subtitle="Meta estratégica" icon={<Target size={20} className="text-indigo-500" />} />
-        </div>
-
         <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm flex flex-col justify-between xl:col-span-1 h-full min-h-[100px]">
           <div className="flex items-center justify-between text-slate-500 pb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Atingimento</span>
@@ -484,7 +943,7 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
           <KPICard title={`Orçado (${currentMonthName})`} value={formatBRL(valorProjetadoMes)} subtitle="Projetado p/ entrega" icon={<Zap size={20} className="text-amber-500" />} />
         </div>
         
-        <div className="xl:col-span-2 h-full">
+        <div className="xl:col-span-3 h-full">
           <KPICard title={`Fechado (${prevMonthName})`} value={formatBRL(valueMesAnterior)} subtitle="Faturamento anterior" icon={<History size={20} className="text-slate-400" />} />
         </div>
 
@@ -503,7 +962,13 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm lg:col-span-2 flex flex-col">
-          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Detalhamento Semanal ({currentMonthName})</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold text-slate-800 tracking-tight">Detalhamento Semanal ({currentMonthName})</h3>
+            <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-4 py-2 flex flex-col items-end shadow-sm">
+              <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest leading-tight mb-1">Meta do Mês</span>
+              <span className="text-lg font-black text-indigo-700 leading-none">{formatBRL(monthlyGoal)}</span>
+            </div>
+          </div>
           <div className="flex-1 min-h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={weeklyChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }} barGap={4}>
@@ -513,12 +978,68 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
                   if (active && payload && payload.length) {
                     const prodData = payload.find(p => p.dataKey === 'valor');
                     const metaData = payload.find(p => p.dataKey === 'meta');
+                    // The raw entry carries fabrica/montagem from totalValueByWeek
+                    const entry = payload[0]?.payload as any;
+                    const fabrica = entry?.fabrica || 0;
+                    const montagem = entry?.montagem || 0;
+                    const total = Number(prodData?.value || 0);
                     return (
-                      <div className="bg-white p-3 border border-slate-200 shadow-lg rounded-lg">
-                        <p className="text-sm font-bold text-slate-800 mb-1">{label}</p>
-                        <div className="space-y-1">
-                          {prodData && <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: prodData.color }} /><p className="text-sm text-slate-600 font-medium">Produzido: <span className="text-slate-900">{formatBRL(Number(prodData.value))}</span></p></div>}
-                          {metaData && <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-slate-200" /><p className="text-sm text-slate-500 font-medium">Meta: <span className="text-slate-900">{formatBRL(Number(metaData.value))}</span></p></div>}
+                      <div className="bg-white p-3 border border-slate-200 shadow-xl rounded-xl min-w-[210px]">
+                        <p className="text-sm font-bold text-slate-800 mb-2">{label}</p>
+                        <div className="space-y-1.5">
+                          {prodData && (
+                            <div className="flex items-center justify-between gap-4">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: prodData.color }} />
+                                <p className="text-xs text-slate-500 font-medium">Total</p>
+                              </div>
+                              <p className="text-xs font-bold text-slate-900">{formatBRL(total)}</p>
+                            </div>
+                          )}
+                          {fabrica > 0 && (
+                            <div className="flex items-center justify-between gap-4 pl-3 border-l-2 border-blue-100">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                                <p className="text-xs text-slate-400 font-medium">Fábrica</p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-bold text-blue-700">{formatBRL(fabrica)}</p>
+                                {total > 0 && <span className="text-[10px] bg-blue-50 text-blue-600 px-1 rounded font-bold">{((fabrica/total)*100).toFixed(0)}%</span>}
+                              </div>
+                            </div>
+                          )}
+                          {montagem > 0 && (
+                            <div className="flex items-center justify-between gap-4 pl-3 border-l-2 border-amber-100">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-amber-400" />
+                                <p className="text-xs text-slate-400 font-medium">Montagem</p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-bold text-amber-700">{formatBRL(montagem)}</p>
+                                {total > 0 && <span className="text-[10px] bg-amber-50 text-amber-600 px-1 rounded font-bold">{((montagem/total)*100).toFixed(0)}%</span>}
+                              </div>
+                            </div>
+                          )}
+                          {metaData && (
+                            <div className="flex items-center justify-between gap-4 pt-1 border-t border-slate-100 mt-1">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-slate-200" />
+                                <p className="text-xs text-slate-400 font-medium">Meta</p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-bold text-slate-500">{formatBRL(Number(metaData.value))}</p>
+                                {Number(metaData.value) > 0 && (() => {
+                                  const pct = ((total - Number(metaData.value)) / Number(metaData.value)) * 100;
+                                  const isAbove = pct >= 0;
+                                  return (
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${isAbove ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
+                                      {isAbove ? '+' : ''}{pct.toFixed(0)}%
+                                    </span>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -553,6 +1074,76 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
         </div>
       </div>
 
+      {/* Breakdown: Produção vs Montagem */}
+      {(weeklyBreakdown.length > 0 || breakdownTotals.total > 0) && (
+        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-slate-100 rounded-md">
+                <Layout size={18} className="text-slate-600" />
+              </div>
+              <h3 className="text-base font-bold text-slate-800 tracking-tight">Produção vs Montagem ({currentMonthName})</h3>
+            </div>
+            <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500 inline-block"/>Fábrica/Produção</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block"/>Montagem/Desmontagem</span>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-left py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Semana</th>
+                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Total</th>
+                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-blue-400">Fábrica (R$)</th>
+                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-blue-400">%</th>
+                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-amber-500">Montagem (R$)</th>
+                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-amber-500">%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weeklyBreakdown.map((row, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <td className="py-2.5 px-3 font-semibold text-slate-700">{row.label}</td>
+                    <td className="py-2.5 px-3 text-right font-bold text-slate-800">{formatBRL(row.total)}</td>
+                    <td className="py-2.5 px-3 text-right text-blue-700 font-medium">{formatBRL(row.fabrica)}</td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded font-bold text-[11px]">{row.pctFabrica.toFixed(0)}%</span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-amber-700 font-medium">{formatBRL(row.montagem)}</td>
+                    <td className="py-2.5 px-3 text-right">
+                      {row.montagem > 0 ? (
+                        <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded font-bold text-[11px]">{row.pctMontagem.toFixed(0)}%</span>
+                      ) : (
+                        <span className="text-slate-300 text-[11px]">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-800">
+                  <td className="py-3 px-3 font-black text-white text-[11px] uppercase tracking-wider rounded-bl-lg">TOTAL</td>
+                  <td className="py-3 px-3 text-right font-black text-white">{formatBRL(breakdownTotals.total)}</td>
+                  <td className="py-3 px-3 text-right font-bold text-blue-200">{formatBRL(breakdownTotals.fabrica)}</td>
+                  <td className="py-3 px-3 text-right">
+                    <span className="px-2 py-0.5 bg-blue-700 text-white rounded font-black text-[11px]">{breakdownTotals.pctFabrica.toFixed(0)}%</span>
+                  </td>
+                  <td className="py-3 px-3 text-right font-bold text-amber-200">{formatBRL(breakdownTotals.montagem)}</td>
+                  <td className="py-3 px-3 text-right rounded-br-lg">
+                    {breakdownTotals.montagem > 0 ? (
+                      <span className="px-2 py-0.5 bg-amber-600 text-white rounded font-black text-[11px]">{breakdownTotals.pctMontagem.toFixed(0)}%</span>
+                    ) : (
+                      <span className="text-slate-500 text-[11px]">—</span>
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm">
          <div className="flex items-center justify-between mb-6">
            <div className="flex items-center gap-2">
@@ -575,15 +1166,32 @@ export default function ExecDashboard({ board }: ExecDashboardProps) {
                       if (active && payload && payload.length) {
                         const data = payload.find(p => p.dataKey === 'valor');
                         const meta = payload.find(p => p.dataKey === 'meta');
+                        const entry = historicalChartData.find(d => d.name === label);
                         return (
                           <div className="bg-white p-3 border border-slate-100 shadow-xl rounded-xl">
-                            <p className="text-sm font-bold text-slate-800 mb-2 truncate">{label}</p>
+                            <p className="text-sm font-bold text-slate-800 mb-2 truncate capitalize">{label}</p>
                             <div className="space-y-1.5">
                               {data && (
                                 <div className="flex items-center gap-2">
                                   <div className="w-2.5 h-2.5 rounded-full bg-slate-800" />
                                   <p className="text-sm text-slate-600 font-semibold whitespace-nowrap">
-                                    Produzido: <span className="text-slate-900">{formatBRL(Number(data.value))}</span>
+                                    Total: <span className="text-slate-900">{formatBRL(Number(data.value))}</span>
+                                  </p>
+                                </div>
+                              )}
+                              {entry?.fabrica > 0 && (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                                  <p className="text-xs text-slate-500 whitespace-nowrap">
+                                    Fábrica: <span className="font-bold text-blue-700">{formatBRL(entry.fabrica)}</span>
+                                  </p>
+                                </div>
+                              )}
+                              {entry?.montagem > 0 && (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                                  <p className="text-xs text-slate-500 whitespace-nowrap">
+                                    Montagem: <span className="font-bold text-amber-700">{formatBRL(entry.montagem)}</span>
                                   </p>
                                 </div>
                               )}
