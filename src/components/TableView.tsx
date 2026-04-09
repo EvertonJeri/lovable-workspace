@@ -111,19 +111,11 @@ export default function TableView({
   const calculateSummary = (group: TaskGroup, column: BoardColumn) => {
     let values: any[] = [];
     const isHistory = group.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('historico');
-    
-    // Ignorar sub-linhas de Montagem e Produção no Histórico para o Resumo do Grupo
-    // pois a linha Pai já contempla o valor total e causaria soma duplicada.
-    const validTasks = group.tasks.filter(t => {
-      if (!isHistory) return true;
-      const n = (t.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      return !n.includes('montagem') && !n.includes('producao') && !n.includes('produção');
-    });
 
     if (column.type === 'formula') {
-      values = validTasks.map(t => evaluateFormula(column.formulaExpr || '', t, board.columns));
+      values = group.tasks.map(t => evaluateFormula(column.formulaExpr || '', t, board.columns));
     } else {
-      values = validTasks.map(t => t.columnValues[column.id]).filter(v => v !== undefined && v !== null);
+      values = group.tasks.map(t => t.columnValues[column.id]).filter(v => v !== undefined && v !== null);
     }
     
     const summaryType = column.summaryType || 'none';

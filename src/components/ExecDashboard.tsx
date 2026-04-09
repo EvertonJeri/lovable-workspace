@@ -381,58 +381,6 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     }
   }, [board, findColId, onBoardRefresh]);
 
-  // Auto-detectar meses passados com linha no histórico mas sem dados (status != Concluído)
-  useEffect(() => {
-    const histGroup = board.groups.find(g => normalizeSearch(g.title).includes('historico'));
-    if (!histGroup) return;
-
-    const dateColId = findColId(['dataEntrega', 'entrega', 'data de entrega', 'prazo', 'DATA DE ENTREGA']);
-    const statusColId = findColId(['status', 'STATUS']);
-    const now = new Date();
-
-    // Verificar os últimos 6 meses
-    for (let i = 1; i <= 6; i++) {
-      const targetDate = subMonths(now, i);
-      const mIdx = targetDate.getMonth();
-      const yr = targetDate.getFullYear();
-
-      // Procurar linha do mês no histórico
-      const row = histGroup.tasks.find(t => {
-        const dateVal = t.columnValues[dateColId] as string;
-        if (!dateVal) return false;
-        try {
-          let d: Date;
-          const s = String(dateVal);
-          if (s.includes('/') && s.length <= 10) {
-            const [dd, mm, yy] = s.split('/');
-            d = new Date(parseInt(yy), parseInt(mm)-1, parseInt(dd));
-          } else { d = parseISO(s); }
-          return d.getMonth() === mIdx && d.getFullYear() === yr;
-        } catch { return false; }
-      });
-
-      if (row) {
-        // Verificar se já está fechado
-        const statusNorm = normalizeSearch(String(row.columnValues[statusColId] || ''));
-        const isClosed = statusNorm.includes('concluido') || statusNorm.includes('feito');
-
-        if (!isClosed) {
-          // Mês não fechado → fechar
-          setTimeout(() => closeMonthToHistory(mIdx, yr), i * 1000);
-        } else {
-          // Mês já fechado → verificar se sub-linhas existem
-          const monthLabel = format(new Date(yr, mIdx, 1), 'MMMM/yyyy', { locale: ptBR });
-          const hasProducaoRow = histGroup.tasks.some(t => t.name === `Produção - ${monthLabel}`);
-          const hasMontagemRow = histGroup.tasks.some(t => t.name === `Montagem - ${monthLabel}`);
-
-          if (!hasProducaoRow && !hasMontagemRow) {
-            // Sub-linhas não existem → criar sem alterar a linha principal
-            setTimeout(() => closeMonthToHistory(mIdx, yr, true), i * 1200);
-          }
-        }
-      }
-    }
-  }, [board.id, board.groups]); // Roda ao trocar de board ou quando tasks mudam
 
   const allItems = useMemo(() => {
     // Contar tasks por grupo antes de mapear
@@ -560,9 +508,6 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     return allItems.filter(item => {
       // Regra: Itens de Histórico só entram se o mês selecionado já foi concluído
       if (item.isHistory) {
-        // Ignorar rigorosamente sub-linhas de Produção/Montagem
-        if ((item as any).isHistorySubrow) return false;
-        
         if (selectedMonth === 'all') return true;
         if (!item.dataEntrega) return false;
         // Itens de histórico devem bater exatamente com o mês selecionado
@@ -587,7 +532,6 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       allItems.forEach(item => {
         if (item.isHistory) {
           if (!isSelectedMonthPast) return;
-          if ((item as any).isHistorySubrow) return; // evitar duplicação do histórico
         }
         
         if (item.dataEntrega && getMonth(item.dataEntrega) === monthIdx) {
@@ -689,12 +633,21 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     let valueMesAnterior = 0;
     const prevMonthIdx = selectedMonth === 'all' ? -1 : (parseInt(selectedMonth) - 1 + 12) % 12;
     if (prevMonthIdx !== -1) {
+      // Indexar quais meses têm sub-linhas de Produção/Montagem
+      const monthsWithSubrows = new Set<number>();
       allItems.forEach(item => {
-        // Ignorar as sub-linhas filhas de histórico no total, pois a linha pai do mês já traz a soma cheia
-        if (item.isHistory && (item as any).isHistorySubrow) return;
-        
+        if (item.isHistory && (item as any).isHistorySubrow && item.dataEntrega) {
+          monthsWithSubrows.add(getMonth(item.dataEntrega));
+        }
+      });
+
+      allItems.forEach(item => {
         if (item.dataEntrega && getMonth(item.dataEntrega) === prevMonthIdx) {
           const isHistory = item.isHistory;
+          const isSubrow = (item as any).isHistorySubrow;
+          // Se for histórico e o mês tiver sub-linhas, ignoramos a linha pai para não duplicar.
+          if (isHistory && monthsWithSubrows.has(prevMonthIdx) && !isSubrow) return;
+
           const statusNorm = normalizeSearch(item.status);
           const isConcluido = statusNorm.includes('concluido') || statusNorm.includes('feito') || statusNorm.includes('done') || statusNorm.includes('pago');
           const weeklySum = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
@@ -725,11 +678,24 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       const monthlyTotals: Record<number, number> = {};
       const monthlyFabrica: Record<number, number> = {};
       const monthlyMontagem: Record<number, number> = {};
+
+      // Primeiro, indexar quais meses têm sub-linhas de Produção/Montagem
+      const monthsWithSubrows = new Set<number>();
       allItems.forEach(item => {
-        // Excluir sub-linhas do histórico (Produção - X, Montagem - X) para não duplicar
-        if (item.isHistory && (item as any).isHistorySubrow) return;
+        if (item.isHistory && (item as any).isHistorySubrow && item.dataEntrega) {
+          monthsWithSubrows.add(getMonth(item.dataEntrega));
+        }
+      });
+
+      allItems.forEach(item => {
         if (item.isHistory && item.dataEntrega) {
           const m = getMonth(item.dataEntrega);
+          const isSubrow = (item as any).isHistorySubrow;
+          
+          // Se o mês tem sub-linhas, ignoramos a linha Pai para não duplicar.
+          // Se não tem, usamos a linha Pai.
+          if (monthsWithSubrows.has(m) && !isSubrow) return;
+
           const weeklySumValue = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
           monthlyTotals[m] = (monthlyTotals[m] || 0) + (weeklySumValue || item.orado || 0);
           // Ler fabricaTotal e montagemTotal salvos no fechamento automático
