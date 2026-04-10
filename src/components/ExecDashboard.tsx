@@ -6,12 +6,14 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, TrendingDown, CheckCircle, 
-  Briefcase, Activity, Target, Zap, History, Layout, Archive
+  Briefcase, Activity, Target, Zap, History, Layout, Archive, Loader2
 } from 'lucide-react';
 import { format, parseISO, startOfMonth, subMonths, getMonth, setMonth, getDaysInMonth, getYear, endOfMonth, lastDayOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { createTask, updateTaskValue } from '@/lib/supabase';
+import { createTask, updateTaskValue, fetchMonthlyGoals } from '@/lib/supabase';
 import { toast } from 'sonner';
+
+const normalizeSearch = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
 
 // Função utilitária para calcular a Linha de Tendência Linear (Regressão)
 const calculateTrend = (data: any[], key: string) => {
@@ -47,10 +49,36 @@ const TABLEAU10 = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc9
 
 export default function ExecDashboard({ board, selectedMonthExternal, onMonthChangeExternal, onBoardRefresh }: ExecDashboardProps) {
   const [selectedWeek, setSelectedWeek] = useState<string>('all');
+  const [selectedSector, setSelectedSector] = useState<string>('all');
   const selectedMonth = selectedMonthExternal || String(new Date().getMonth());
   const [monthlyGoal, setMonthlyGoal] = useState<number>(300000);
   const [includeSaturdays, setIncludeSaturdays] = useState<boolean>(false);
-  const [isClosingMonth, setIsClosingMonth] = useState(false);
+
+  const uniqueSectors = useMemo(() => {
+    const sectorsMap = new Map<string, string>(); // normalized -> display
+    board.groups.forEach(g => {
+      if (normalizeSearch(g.title).includes('historico')) return;
+      g.tasks.forEach(t => {
+        const val = (key: string, alternatives: string[]) => {
+          if (t.columnValues[key] !== undefined) return t.columnValues[key];
+          for (const alt of alternatives) {
+            const normAlt = normalizeSearch(alt);
+            const col = board.columns.find(c => normalizeSearch(c.title) === normAlt);
+            if (col && t.columnValues[col.id] !== undefined) return t.columnValues[col.id];
+          }
+          return '';
+        };
+        const sectorRaw = String(val('subitemName', ['setor', 'subitem', 'subitem name', 'responsável', 'assignee'])) || t.name;
+        const norm = normalizeSearch(sectorRaw);
+        if (norm && !sectorsMap.has(norm)) {
+          // Salva o primeiro encontrado para exibição
+          sectorsMap.set(norm, sectorRaw);
+        }
+      });
+    });
+    return Array.from(sectorsMap.values()).filter(s => s && s.trim() !== '').sort();
+  }, [board.groups, board.columns]);
+
 
   // Função para calcular dias úteis reais por semana no mês selecionado
   const getWeekDaysData = () => {
@@ -82,7 +110,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     return weekWorkingDays;
   };
 
-  const normalizeSearch = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+
 
   // Helper: find column ID by normalized title
   const findColId = useCallback((titles: string[]) => {
@@ -472,37 +500,53 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
   const historyGroup = useMemo(() => board.groups.find(g => normalizeSearch(g.title).includes('historico')), [board.groups]);
   const historyGroupId = historyGroup?.id;
 
-  // Carregar meta do storage quando o mês selecionado mudar
+  const [isClosingMonth, setIsClosingMonth] = useState(false);
+  const [isLoadingGoals, setIsLoadingGoals] = useState(true);
+  const [yearlyGoals, setYearlyGoals] = useState<Record<number, any>>({});
+
+  // Carregar meta do storage/DB quando o mês ou ano mudar
   useEffect(() => {
-    if (selectedMonth === 'all') {
-      setMonthlyGoal(0);
-      setIncludeSaturdays(false);
-      return;
-    }
-    
-    // Tenta carregar do V2 (com escala de sábado)
-    const savedV2 = localStorage.getItem('executive_monthly_goals_v2');
-    if (savedV2) {
-      const goals = JSON.parse(savedV2);
-      const monthConfig = goals[parseInt(selectedMonth)];
-      if (monthConfig) {
-        setMonthlyGoal(monthConfig.value);
-        setIncludeSaturdays(monthConfig.includeSaturdays);
-        return;
+    async function loadMonthlyGoals() {
+      setIsLoadingGoals(true);
+      try {
+        const year = getYear(now);
+        const data = await fetchMonthlyGoals(year);
+        
+        const goalsMap: Record<number, any> = {};
+        data?.forEach(g => {
+          goalsMap[g.month_idx] = { value: Number(g.value), includeSaturdays: !!g.include_saturdays };
+        });
+
+        // Fallback p/ localStorage (Migração)
+        const savedV2 = localStorage.getItem('executive_monthly_goals_v2');
+        if (savedV2 && Object.keys(goalsMap).length === 0) {
+          const local = JSON.parse(savedV2);
+          Object.keys(local).forEach(k => {
+            const idx = parseInt(k);
+            goalsMap[idx] = local[k];
+          });
+        }
+
+        setYearlyGoals(goalsMap);
+
+        if (selectedMonth !== 'all') {
+          const mIdx = parseInt(selectedMonth);
+          const config = goalsMap[mIdx] || { value: 0, includeSaturdays: false };
+          setMonthlyGoal(config.value);
+          setIncludeSaturdays(config.includeSaturdays);
+        } else {
+          setMonthlyGoal(0);
+          setIncludeSaturdays(false);
+        }
+      } catch (err) {
+        console.error('Error loading goals in dashboard:', err);
+      } finally {
+        setIsLoadingGoals(false);
       }
     }
 
-    // Fallback para V1
-    const savedV1 = localStorage.getItem('executive_monthly_goals');
-    if (savedV1) {
-      const goals = JSON.parse(savedV1);
-      const monthGoal = goals[parseInt(selectedMonth)];
-      if (monthGoal !== undefined) {
-        setMonthlyGoal(monthGoal);
-        setIncludeSaturdays(false);
-      }
-    }
-  }, [selectedMonth]);
+    loadMonthlyGoals();
+  }, [selectedMonth, now]);
 
   const workItems = useMemo(() => {
     return allItems.filter(item => {
@@ -516,11 +560,16 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
       if (!item.name && !item.subitemName) return false;
       
+      // Filtro por Setor (Case-Insensitive)
+      if (selectedSector !== 'all') {
+        if (normalizeSearch(item.subitemName) !== normalizeSearch(selectedSector)) return false;
+      }
+
       // Para itens normais, relaxamos a regra da data de entrega para permitir que a produção semanal 
       // seja contabilizada independentemente do prazo final.
       return true;
     });
-  }, [allItems, selectedMonth, isSelectedMonthPast]);
+  }, [allItems, selectedMonth, isSelectedMonthPast, selectedSector]);
 
   const {
     uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes, weeklyBreakdown, breakdownTotals
@@ -547,15 +596,22 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
     const isSelectedCurrentMonth = selectedMonth !== 'all' && parseInt(selectedMonth) === now.getMonth();
 
-    // Itens filtrados para KPIs de Projetos e Conclusão (Escopo do Mês)
     const scopedItems = selectedMonth === 'all' ? activeItems : activeItems.filter(item => {
       // Se o item não tem data de entrega, consideramos como oficial apenas se estivermos vendo o mês atual
       if (!item.dataEntrega) return !item.isHistory && isSelectedCurrentMonth;
       return getMonth(item.dataEntrega) === parseInt(selectedMonth);
     });
 
-    const projSet = new Set(scopedItems.map(i => i.groupId));
-    const uniqueProjects = projSet.size;
+    const projectSet = new Set<string>();
+    allItems.forEach(item => {
+      if (item.isHistory || item.groupId === historyGroupId) return;
+      if (selectedMonth === 'all') {
+        projectSet.add(item.groupId);
+      } else if (item.dataEntrega && getMonth(item.dataEntrega) === parseInt(selectedMonth)) {
+        projectSet.add(item.groupId);
+      }
+    });
+    const uniqueProjects = projectSet.size;
 
     const percentSum = scopedItems.reduce((acc, curr) => acc + curr.activePercentual, 0);
     const conclusaoGeral = scopedItems.length > 0 ? percentSum / scopedItems.length : 0;
@@ -706,8 +762,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         }
       });
       
-      const savedGoals = localStorage.getItem('executive_monthly_goals_v2');
-      const monthlyGoals = savedGoals ? JSON.parse(savedGoals) : {};
+      const monthlyGoals = yearlyGoals;
 
       historicalData.push(...Array.from({ length: 12 }).map((_, i) => {
         const goal = monthlyGoals[i]?.value || 0;
@@ -857,6 +912,19 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
             <select value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)} className="border-slate-300 rounded-md shadow-sm text-sm p-1.5 focus:border-blue-500 focus:ring-blue-500 bg-white">
               <option value="all">Todas as Semanas</option>
               {['01','02','03','04','05'].map(s => <option key={s} value={`semana${s}`}>Semana {parseInt(s)}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-slate-600 font-medium whitespace-nowrap">Setor:</label>
+            <select 
+              value={selectedSector} 
+              onChange={(e) => setSelectedSector(e.target.value)} 
+              className="border-slate-300 rounded-md shadow-sm text-sm p-1.5 focus:border-blue-500 focus:ring-blue-500 bg-white max-w-[200px]"
+            >
+              <option value="all">Todos os Setores</option>
+              {uniqueSectors.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
             </select>
           </div>
           <button

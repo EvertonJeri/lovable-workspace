@@ -110,3 +110,27 @@ export async function fetchTeamMembers() {
     avatar: m.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.name)}&background=random`
   }));
 }
+
+export async function fetchMonthlyGoals(year: number) {
+  const { data, error } = await supabase
+    .from('monthly_goals')
+    .select('*')
+    .eq('year', year);
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateMonthlyGoal(monthIdx: number, year: number, value: number, includeSaturdays: boolean) {
+  const { error } = await supabase
+    .from('monthly_goals')
+    .upsert({ 
+      month_idx: monthIdx, 
+      year: year, 
+      value: value, 
+      include_saturdays: includeSaturdays,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'month_idx,year' });
+
+  if (error) throw error;
+}

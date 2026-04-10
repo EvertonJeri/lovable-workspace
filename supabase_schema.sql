@@ -60,5 +60,16 @@ CREATE TABLE IF NOT EXISTS team_members (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 7. Tabela de Metas Mensais (Monthly Goals)
+CREATE TABLE IF NOT EXISTS monthly_goals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  month_idx INTEGER NOT NULL,
+  year INTEGER NOT NULL,
+  value NUMERIC DEFAULT 0,
+  include_saturdays BOOLEAN DEFAULT false,
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(month_idx, year)
+);
+
 -- Inserir Board Inicial para teste (Se desejar que o banco não comece vazio)
 -- INSERT INTO boards (title) VALUES ('Meu Primeiro Quadro');
