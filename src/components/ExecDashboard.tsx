@@ -1041,7 +1041,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={weeklyChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }} barGap={4}>
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
-                <YAxis tickFormatter={formatCompactBRL} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
+                <YAxis hide tickFormatter={formatCompactBRL} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (active && payload && payload.length) {
                     const prodData = payload.find(p => p.dataKey === 'valor');
@@ -1241,7 +1241,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
              <ResponsiveContainer width="100%" height="100%">
                <ComposedChart data={historicalChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }} barGap={6}>
                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
-                 <YAxis tickFormatter={formatCompactBRL} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
+                 <YAxis hide tickFormatter={formatCompactBRL} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
                  <Tooltip 
                     content={({ active, payload, label }) => {
                       if (active && payload && payload.length) {
@@ -1292,7 +1292,9 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
                     }}
                     cursor={{fill: '#f1f5f9'}}
                   />
-                 <Bar dataKey="meta" radius={[4, 4, 0, 0]} fill="#e2e8f0" barSize={30} />
+                 <Bar dataKey="meta" radius={[4, 4, 0, 0]} fill="#e2e8f0" barSize={30}>
+                    <LabelList dataKey="meta" position="top" formatter={formatCompactBRL} fill="#94a3b8" fontSize={10} fontWeight="medium" />
+                  </Bar>
                  <Bar dataKey="valor" radius={[4, 4, 0, 0]} barSize={30}>
                     {historicalChartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={TABLEAU10[index % TABLEAU10.length]} />
