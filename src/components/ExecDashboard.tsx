@@ -451,6 +451,13 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     const groupTaskCount: Record<string, number> = {};
     board.groups.forEach(g => { groupTaskCount[g.id] = g.tasks.length; });
 
+    // Encontrar ID da coluna de fórmula/faturamento uma vez para ser certeiro
+    const formulaCol = (board.columns || []).find(c => {
+      const n = normalizeSearch(c.title);
+      return n === 'mesformula' || n === 'formula' || n.includes('formula') || n.includes('faturamento');
+    });
+    const formulaColId = formulaCol?.id;
+
     return board.groups.flatMap(g => g.tasks.map(t => {
       const gTitleNorm = normalizeSearch(g.title);
       const isHistoryGroup = gTitleNorm.includes('historico');
@@ -485,7 +492,37 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       const semana03 = parseNum(val('semana03', ['sem03', 's3', 'semana03', 'semana 03']));
       const semana04 = parseNum(val('semana04', ['sem04', 's4', 'semana04', 'semana 04']));
       const semana05 = parseNum(val('semana05', ['sem05', 's5', 'semana05', 'semana 05']));
-      const mes_fechado = parseNum(val('mesAnterior', ['Mês anterior', 'Mês Anterior', 'Mês ant', 'Mes Anterior', 'mes_fechado', 'mês formula']));
+      
+      // Scanner inteligente de faturamento/produção acumulada
+      let mes_fechado = 0;
+      // Para itens ATIVOS, priorizamos buscar a coluna que se chama literalmente "Mês anterior"
+      const mesAnteriorCol = (board.columns || []).find(c => {
+        const n = normalizeSearch(c.title);
+        return n === 'mesanterior' || n.includes('anterior');
+      });
+      const mesAnteriorId = mesAnteriorCol?.id;
+
+      const rawMesFechado = mesAnteriorId ? t.columnValues[mesAnteriorId] : (formulaColId ? t.columnValues[formulaColId] : val('mes_fechado', ['mês anterior', 'Mês anterior', 'Mês Formula', 'formula']));
+      mes_fechado = parseNum(rawMesFechado);
+
+      // No Histórico (Linha Pai), o total é a SOMA das semanas (que são valores absolutos lá)
+      if (isHistoryGroup && !isHistorySubrow) {
+        const weeklySum = semana01 + semana02 + semana03 + semana04 + semana05;
+        // Pega o maior entre a coluna de fórmula e a soma das semanas
+        mes_fechado = Math.max(mes_fechado, weeklySum);
+        
+        // Se ainda for 1 (orçamento placeholder), tenta escanear qualquer valor alto na linha
+        if (mes_fechado <= 1) {
+          Object.entries(t.columnValues).forEach(([colId, v]) => {
+            const col = board.columns.find(c => c.id === colId);
+            if (!col) return;
+            const parsed = parseNum(v);
+            if (parsed > 100 && !normalizeSearch(col.title).includes('data')) {
+              mes_fechado = Math.max(mes_fechado, parsed);
+            }
+          });
+        }
+      }
 
       const dataEntregaRaw = val('dataEntrega', ['entrega', 'data de entrega', 'prazo', 'delivery']);
       let dataEntrega: Date | null = null;
@@ -755,60 +792,85 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
 
     let valueMesAnterior = 0;
-    const prevMonthIdx = selectedMonth === 'all' ? -1 : (parseInt(selectedMonth) - 1 + 12) % 12;
-    if (prevMonthIdx !== -1) {
-      // Indexar quais meses têm sub-linhas de Produção/Montagem
-      const monthsWithSubrows = new Set<number>();
-      allItems.forEach(item => {
-        if (item.isHistory && (item as any).isHistorySubrow && item.dataEntrega) {
-          monthsWithSubrows.add(getMonth(item.dataEntrega));
+    const prevMonthIdx = selectedMonth === 'all' ? (now.getMonth() - 1 + 12) % 12 : (parseInt(selectedMonth) - 1 + 12) % 12;
+    const prevMonthName = format(setMonth(new Date(), prevMonthIdx), 'MMMM', { locale: ptBR });
+    const prevMonthNameNorm = normalizeSearch(prevMonthName);
+
+    // 1. Prioridade Absoluta: Buscar a linha pai no histórico que tem o nome do mês anterior (ex: "Março / 2026")
+    allItems.forEach(item => {
+      if (item.isHistory && !item.isHistorySubrow) {
+        const nameNorm = normalizeSearch(item.name);
+        if (nameNorm.includes(prevMonthNameNorm)) {
+          // No histórico consolidado, PRIORIZAMOS o mes_fechado (Mês Formula)
+          // Se o valor estiver zerado na coluna formula, tenta o orçado como backup
+          const val = item.mes_fechado || item.orado || 0;
+          valueMesAnterior += val;
         }
-      });
+      }
+    });
 
+    // 2. Fallback de Segurança: Se não achou pelo nome, tenta por data de entrega no histórico
+    if (valueMesAnterior === 0) {
       allItems.forEach(item => {
-        if (item.dataEntrega && getMonth(item.dataEntrega) === prevMonthIdx) {
-          const isHistory = item.isHistory;
-          const isSubrow = (item as any).isHistorySubrow;
-          // Se for histórico e o mês tiver sub-linhas, ignoramos a linha pai para não duplicar.
-          if (isHistory && monthsWithSubrows.has(prevMonthIdx) && !isSubrow) return;
-
-          const budget = item.orado || 0;
-          const weeklySumPerc = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
-          const weeklyValue = (weeklySumPerc * budget) / 100;
-
-          if (isHistory) {
-            valueMesAnterior += (weeklyValue || budget || 0);
-          } else {
-            valueMesAnterior += weeklyValue;
-          }
+        if (item.isHistory && !item.isHistorySubrow && item.dataEntrega && getMonth(item.dataEntrega) === prevMonthIdx) {
+          valueMesAnterior += (item.mes_fechado || item.orado || 0);
         }
       });
     }
 
+    // 1. Mapear produção histórica por nome de projeto (apenas linhas pai no grupo histórico)
+    const historicalProdByName: Record<string, number> = {};
+    allItems.forEach(i => {
+      if (i.isHistory && !i.isHistorySubrow) {
+        const normName = normalizeSearch(i.name);
+        historicalProdByName[normName] = (historicalProdByName[normName] || 0) + (i.orado || 0);
+      }
+    });
+
     const gs: Record<string, any> = {};
     scopedItems.forEach(i => {
-      if (i.isHistory) return; // O Histórico não deve aparecer no Status dos Projetos
+      if (i.isHistory) return; // Filtramos aqui pois queremos os cards dos projetos ATIVOS
       const budget = i.orado || 0;
       if (budget <= 0) return; // IGNORAR LINHAS SEM ORÇAMENTO NO STATUS DO PROJETO
       
-      if (!gs[i.groupId]) gs[i.groupId] = { id: i.groupId, name: i.groupName, producedSum: 0, oradoSum: 0, count: 0, pendentes: 0 };
+      if (!gs[i.groupId]) {
+        // Buscar se existe histórico acumulado para este projeto pelo nome do grupo
+        const groupNameNorm = normalizeSearch(i.groupName);
+        const accumulatedFromHistory = historicalProdByName[groupNameNorm] || 0;
+        
+        gs[i.groupId] = { 
+          id: i.groupId, 
+          name: i.groupName, 
+          histSum: accumulatedFromHistory, // Valor vindo do grupo Histórico
+          producedSum: 0, 
+          oradoSum: 0, 
+          count: 0, 
+          pendentes: 0 
+        };
+      }
       
       const weeklySumPerc = (i.semana01 || 0) + (i.semana02 || 0) + (i.semana03 || 0) + (i.semana04 || 0) + (i.semana05 || 0);
       const currentWeeksProduced = (weeklySumPerc * budget) / 100;
-      const totalProduction = (i.mes_fechado || 0) + currentWeeksProduced;
       
-      gs[i.groupId].producedSum += totalProduction;
+      // Para itens ATIVOS, o mes_fechado (Mês anterior) costuma ser uma porcentagem (ex: 40%)
+      const prevMonthProduced = i.isHistory ? (i.mes_fechado || 0) : ((i.mes_fechado || 0) * budget) / 100;
+      
+      gs[i.groupId].producedSum += prevMonthProduced + currentWeeksProduced;
       gs[i.groupId].oradoSum += budget;
       gs[i.groupId].count += 1;
       
-      const itemPercent = budget > 0 ? (totalProduction / budget) * 100 : 0;
+      const totalItemProduced = prevMonthProduced + currentWeeksProduced;
+      const itemPercent = budget > 0 ? (totalItemProduced / budget) * 100 : 0;
       if (itemPercent < 99) gs[i.groupId].pendentes += 1;
     });
 
-    const groupSummaries = Object.values(gs).map(g => ({ 
-      ...g, 
-      avgPercent: g.oradoSum > 0 ? (g.producedSum / g.oradoSum) * 100 : 0 
-    })).sort((a, b) => b.oradoSum - a.oradoSum);
+    const groupSummaries = Object.values(gs).map(g => {
+      const totalProduced = g.histSum + g.producedSum; // Soma Histórico (Pai) + Colunas (Mês Anterior + Semanas)
+      return { 
+        ...g, 
+        avgPercent: g.oradoSum > 0 ? (totalProduced / g.oradoSum) * 100 : 0 
+      };
+    }).sort((a, b) => b.avgPercent - a.avgPercent);
 
     const historicalData: any[] = [];
     if (historyGroup) {
