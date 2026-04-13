@@ -121,16 +121,26 @@ export async function fetchMonthlyGoals(year: number) {
   return data;
 }
 
-export async function updateMonthlyGoal(monthIdx: number, year: number, value: number, includeSaturdays: boolean) {
-  const { error } = await supabase
-    .from('monthly_goals')
-    .upsert({ 
-      month_idx: monthIdx, 
-      year: year, 
-      value: value, 
-      include_saturdays: includeSaturdays,
+export async function updateMonthlyGoals(year: number, goals: Record<number, { value: number, includeSaturdays: boolean }>) {
+  try {
+    const upsertData = Object.entries(goals).map(([idx, goal]) => ({
+      month_idx: parseInt(idx),
+      year: year,
+      value: goal.value,
+      include_saturdays: goal.includeSaturdays,
       updated_at: new Date().toISOString()
-    }, { onConflict: 'month_idx,year' });
+    }));
 
-  if (error) throw error;
+    const { error } = await supabase
+      .from('monthly_goals')
+      .upsert(upsertData, { onConflict: 'month_idx,year' });
+
+    if (error) {
+      console.error('Supabase bulk upsert error:', error);
+      throw error;
+    }
+  } catch (err) {
+    console.error('Failed to update monthly goals:', err);
+    throw err;
+  }
 }

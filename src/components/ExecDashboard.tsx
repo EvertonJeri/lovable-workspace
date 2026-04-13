@@ -167,11 +167,24 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
           } catch {}
         }
         // Fallback: tentar pelo nome da tarefa (ex: "Janeiro / 2026")
-        if (monthIdx === -1) {
+            if (monthIdx === -1) {
           const monthNames = ['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
           monthIdx = monthNames.findIndex(m => nameNorm.includes(m));
         }
         if (monthIdx === -1) continue;
+
+        // Tentar extrair ano da data se o math do nome falhou ou para confirmar
+        if (dateVal) {
+          try {
+            const s = String(dateVal);
+            let d: Date;
+            if (s.includes('/') && s.length <= 10) {
+              const [dd, mm, yy] = s.split('/');
+              d = new Date(parseInt(yy), parseInt(mm)-1, parseInt(dd));
+            } else { d = parseISO(s); }
+            taskYear = d.getFullYear();
+          } catch {}
+        }
 
         const monthLabel = format(new Date(taskYear, monthIdx, 1), 'MMMM/yyyy', { locale: ptBR });
         const lastDayStr = format(lastDayOfMonth(new Date(taskYear, monthIdx, 1)), 'yyyy-MM-dd');
@@ -189,6 +202,8 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
             try {
               const newSub = await createTask(histGroup.id, sub.name);
               await updateTaskValue(newSub.id, dateColId, lastDayStr);
+              // Também copiar a data e status para a sub-linha
+              await updateTaskValue(newSub.id, statusColId, 'Concluído');
               created++;
             } catch (err) {
               console.warn(`Erro ao criar ${sub.name}:`, err);
@@ -374,11 +389,32 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       for (const sub of subRows) {
         if (sub.total <= 0) continue;
 
-        // Verificar se sub-linha já existe
-        const existingSubRow = histGroup.tasks.find(t => t.name === sub.name);
+        // Verificar se sub-linha já existe (Busca por Tipo + Data para ser resiliente a erros no nome)
+        const existingSubRow = histGroup.tasks.find(t => {
+          const n = normalizeSearch(t.name);
+          const subType = sub.name.toLowerCase().startsWith('produção') || sub.name.toLowerCase().startsWith('producao') ? 'producao' : 'montagem';
+          if (!n.startsWith(subType)) return false;
+          
+          const dateVal = t.columnValues[dateColId] as string;
+          if (!dateVal) return false;
+          try {
+            let d: Date;
+            const s = String(dateVal);
+            if (s.includes('/') && s.length <= 10) {
+              const [dd, mm, yy] = s.split('/');
+              d = new Date(parseInt(yy), parseInt(mm)-1, parseInt(dd));
+            } else { d = parseISO(s); }
+            return d.getMonth() === monthIdx && d.getFullYear() === year;
+          } catch { return false; }
+        });
+
         let subTaskId: string;
         if (existingSubRow) {
           subTaskId = existingSubRow.id;
+          // Corrigir nome se estiver diferente (ex: erro de ano no nome)
+          if (existingSubRow.name !== sub.name) {
+             await supabase.from('tasks').update({ name: sub.name }).eq('id', subTaskId);
+          }
         } else {
           // Criar com posição logo após a linha pai
           const newSub = await createTask(histGroup.id, sub.name, sub.pos);
@@ -421,8 +457,8 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       // Sub-linhas de breakdown ("Produção - X" e "Montagem - X") não devem ser contabilizadas nos totais
       const tNameNorm = normalizeSearch(t.name);
       const isHistorySubrow = isHistoryGroup && (tNameNorm.startsWith('producao') || tNameNorm.startsWith('montagem'));
-      // Regra: 1 tarefa no grupo = Montagem/Desmontagem, 2+ = Produção (Fábrica)
-      const isMontagem = !isHistoryGroup && groupTaskCount[g.id] === 1;
+      // Regra: 1 tarefa no grupo = Montagem/Desmontagem, 2+ = Produção (Fábrica). No Histórico, checa pelo nome.
+      const isMontagem = !isHistoryGroup ? (groupTaskCount[g.id] === 1) : tNameNorm.startsWith('montagem');
       
       const val = (key: string, alternatives: string[]) => {
         if (t.columnValues[key] !== undefined) return t.columnValues[key];
@@ -550,12 +586,21 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
   const workItems = useMemo(() => {
     return allItems.filter(item => {
-      // Regra: Itens de Histórico só entram se o mês selecionado já foi concluído
+      // Regra: Itens de Histórico só entram se o mês selecionado já foi concluído ou se é o mês atual
       if (item.isHistory) {
         if (selectedMonth === 'all') return true;
         if (!item.dataEntrega) return false;
         // Itens de histórico devem bater exatamente com o mês selecionado
-        return getMonth(item.dataEntrega) === parseInt(selectedMonth) && isSelectedMonthPast;
+        // Permitir histórico do mês atual para não sumirem do dashboard assim que fechados
+        const itemMonth = getMonth(item.dataEntrega);
+        const itemYear = getYear(item.dataEntrega);
+        const currentMonthIdx = now.getMonth();
+        const currentYear = now.getFullYear();
+        
+        const isSelectedMonth = itemMonth === parseInt(selectedMonth);
+        const isCurrentYear = itemYear === currentYear;
+        
+        return isSelectedMonth && isCurrentYear;
       }
 
       if (!item.name && !item.subitemName) return false;
@@ -579,11 +624,8 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     if (selectedMonth !== 'all') {
       const monthIdx = parseInt(selectedMonth);
       allItems.forEach(item => {
-        if (item.isHistory) {
-          if (!isSelectedMonthPast) return;
-        }
-        
-        if (item.dataEntrega && getMonth(item.dataEntrega) === monthIdx) {
+        // Para o Orçado, incluímos tudo que estava planejado para o mês, inclusive o que já foi para o histórico
+        if (item.dataEntrega && getMonth(item.dataEntrega) === monthIdx && getYear(item.dataEntrega) === now.getFullYear()) {
           valorProjetadoMes += (item.orado || 0);
         }
       });
@@ -623,6 +665,15 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     const valueByWeekFabrica: Record<string, number> = { semana01: 0, semana02: 0, semana03: 0, semana04: 0, semana05: 0 };
     const valueByWeekMontagem: Record<string, number> = { semana01: 0, semana02: 0, semana03: 0, semana04: 0, semana05: 0 };
 
+    // Indexar quais meses têm sub-linhas de Produção/Montagem para evitar duplicidade no total
+    const monthsWithSubrowsInCurrentView = new Set<string>();
+    activeItems.forEach(item => {
+      if (item.isHistory && (item as any).isHistorySubrow && item.dataEntrega) {
+        const key = `${getYear(item.dataEntrega)}-${getMonth(item.dataEntrega)}`;
+        monthsWithSubrowsInCurrentView.add(key);
+      }
+    });
+
     activeItems.forEach(item => {
       const isHistory = item.isHistory;
       const budget = item.orado || 0;
@@ -635,6 +686,11 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       if (!shouldShowInWeekly) return;
 
       if (isHistory) {
+        // Evitar duplicidade: se o mês tem sub-linhas, ignoramos a linha pai.
+        const isSubrow = (item as any).isHistorySubrow;
+        const monthKey = item.dataEntrega ? `${getYear(item.dataEntrega)}-${getMonth(item.dataEntrega)}` : '';
+        if (monthKey && monthsWithSubrowsInCurrentView.has(monthKey) && !isSubrow) return;
+
         semanas.forEach(sem => { valueByWeek[sem] += (item[sem] || 0); targetMap[sem] += (item[sem] || 0); });
       } else if (isConcluido) {
         const weeklyPctSum = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
@@ -735,22 +791,25 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       const monthlyFabrica: Record<number, number> = {};
       const monthlyMontagem: Record<number, number> = {};
 
-      // Primeiro, indexar quais meses têm sub-linhas de Produção/Montagem
-      const monthsWithSubrows = new Set<number>();
+      // Primeiro, indexar quais meses têm sub-linhas de Produção/Montagem (Composta por Ano-Mês)
+      const monthsWithSubrows = new Set<string>();
       allItems.forEach(item => {
         if (item.isHistory && (item as any).isHistorySubrow && item.dataEntrega) {
-          monthsWithSubrows.add(getMonth(item.dataEntrega));
+          const key = `${getYear(item.dataEntrega)}-${getMonth(item.dataEntrega)}`;
+          monthsWithSubrows.add(key);
         }
       });
 
       allItems.forEach(item => {
         if (item.isHistory && item.dataEntrega) {
           const m = getMonth(item.dataEntrega);
+          const y = getYear(item.dataEntrega);
+          const monthKey = `${y}-${m}`;
           const isSubrow = (item as any).isHistorySubrow;
           
           // Se o mês tem sub-linhas, ignoramos a linha Pai para não duplicar.
           // Se não tem, usamos a linha Pai.
-          if (monthsWithSubrows.has(m) && !isSubrow) return;
+          if (monthsWithSubrows.has(monthKey) && !isSubrow) return;
 
           const weeklySumValue = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
           monthlyTotals[m] = (monthlyTotals[m] || 0) + (weeklySumValue || item.orado || 0);
@@ -833,27 +892,27 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     const isCurrentMonth = !isMonthPast && !isMonthFuture && getMonth(displayMonthDate) === getMonth(now);
 
     if (isCurrentMonth) {
-      // Lógica de Redistribuição (somente mês ativo)
+      // Lógica de Redistribuição Dinâmica (Rolling Goal)
+      let accumulatedDiff = 0;
       for (let i = 0; i < 5; i++) {
         const d = weekWorkingDays[i];
-        if (d <= 0) continue;
+        if (d <= 0) {
+          metas[i] = 0;
+          continue;
+        }
+
         const isWeekFinished = now.getDate() > (weekEndDates[i] || 99);
+        const originalWeeklyMeta = totalWorkingDays > 0 ? (monthlyGoal * d) / totalWorkingDays : 0;
+        
         if (isWeekFinished) {
           const actualProd = productionByWeek[i] || 0;
-          metas[i] = actualProd;
-          currentRemainingGoal -= actualProd;
-          currentRemainingDays -= d;
-        }
-      }
-      // Distribuir o que sobrou
-      const goalToDistribute = Math.max(0, currentRemainingGoal);
-      const daysToDistribute = currentRemainingDays;
-      for (let i = 0; i < 5; i++) {
-        const d = weekWorkingDays[i];
-        if (d <= 0) continue;
-        const isWeekFinished = now.getDate() > (weekEndDates[i] || 99);
-        if (!isWeekFinished) {
-          metas[i] = daysToDistribute > 0 ? (goalToDistribute * (d / daysToDistribute)) : 0;
+          metas[i] = originalWeeklyMeta; // Mostramos a meta original para ver a diferença no gráfico
+          accumulatedDiff += (originalWeeklyMeta - actualProd);
+        } else {
+          // Semana ativa ou futura: recebe a redistribuição da diferença acumulada
+          const remainingDays = weekWorkingDays.slice(i).reduce((a, b) => a + b, 0);
+          const redistribution = remainingDays > 0 ? (accumulatedDiff * (d / remainingDays)) : 0;
+          metas[i] = Math.max(0, originalWeeklyMeta + redistribution);
         }
       }
     } else {

@@ -3,7 +3,7 @@ import { Target, Calendar, TrendingUp, Info, Save, Check, X, Loader2 } from 'luc
 import { format, getDaysInMonth, setMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
-import { fetchMonthlyGoals, updateMonthlyGoal } from '../lib/supabase';
+import { fetchMonthlyGoals, updateMonthlyGoals } from '../lib/supabase';
 
 interface MonthGoal {
   value: number;
@@ -59,10 +59,7 @@ export default function GoalsView() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const promises = Object.entries(goals).map(([idx, goal]) => 
-        updateMonthlyGoal(parseInt(idx), year, goal.value, goal.includeSaturdays)
-      );
-      await Promise.all(promises);
+      await updateMonthlyGoals(year, goals);
       localStorage.setItem('executive_monthly_goals_v2', JSON.stringify(goals));
       toast.success('Configurações de metas salvas no banco de dados!');
     } catch (err) {
