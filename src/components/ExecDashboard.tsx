@@ -1126,11 +1126,11 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
                   return null;
                 }} />
                 <Bar dataKey="meta" radius={[4, 4, 0, 0]} fill="#e2e8f0" barSize={22}>
-                  <LabelList dataKey="meta" position="top" formatter={formatCompactBRL} fill="#94a3b8" fontSize={10} fontWeight="medium" />
+                  <LabelList dataKey="meta" position="top" formatter={formatBRL} fill="#94a3b8" fontSize={9} fontWeight="medium" />
                 </Bar>
                 <Bar dataKey="valor" radius={[4, 4, 0, 0]} barSize={22}>
                   {weeklyChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={TABLEAU10[index % TABLEAU10.length]} />)}
-                  <LabelList dataKey="valor" position="top" formatter={formatCompactBRL} fill="#0f172a" fontSize={11} fontWeight="bold" />
+                  <LabelList dataKey="valor" position="top" formatter={formatBRL} fill="#0f172a" fontSize={10} fontWeight="bold" />
                 </Bar>
                 <Line type="monotone" dataKey="trend" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} animationDuration={1000} />
               </ComposedChart>
@@ -1237,91 +1237,81 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
          </div>
          
          <div className="h-[350px] w-full">
-           {historicalChartData.length > 0 ? (
-             <ResponsiveContainer width="100%" height="100%">
-               <ComposedChart data={historicalChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }} barGap={6}>
-                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
-                 <YAxis hide tickFormatter={formatCompactBRL} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
-                 <Tooltip 
-                    content={({ active, payload, label }) => {
-                      if (active && payload && payload.length) {
-                        const data = payload.find(p => p.dataKey === 'valor');
-                        const meta = payload.find(p => p.dataKey === 'meta');
-                        const entry = historicalChartData.find(d => d.name === label);
-                        return (
-                          <div className="bg-white p-3 border border-slate-100 shadow-xl rounded-xl">
-                            <p className="text-sm font-bold text-slate-800 mb-2 truncate capitalize">{label}</p>
-                            <div className="space-y-1.5">
-                              {data && (
-                                <div className="flex items-center gap-2">
-                                  <div className="w-2.5 h-2.5 rounded-full bg-slate-800" />
-                                  <p className="text-sm text-slate-600 font-semibold whitespace-nowrap">
-                                    Total: <span className="text-slate-900">{formatBRL(Number(data.value))}</span>
-                                  </p>
-                                </div>
-                              )}
-                              {entry?.fabrica > 0 && (
-                                <div className="flex items-center gap-2">
-                                  <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                                  <p className="text-xs text-slate-500 whitespace-nowrap">
-                                    Fábrica: <span className="font-bold text-blue-700">{formatBRL(entry.fabrica)}</span>
-                                  </p>
-                                </div>
-                              )}
-                              {entry?.montagem > 0 && (
-                                <div className="flex items-center gap-2">
-                                  <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                                  <p className="text-xs text-slate-500 whitespace-nowrap">
-                                    Montagem: <span className="font-bold text-amber-700">{formatBRL(entry.montagem)}</span>
-                                  </p>
-                                </div>
-                              )}
-                              {meta && (
-                                <div className="flex items-center gap-2">
-                                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
-                                  <p className="text-sm text-slate-500 font-medium whitespace-nowrap">
-                                    Meta: <span className="text-slate-900">{formatBRL(Number(meta.value))}</span>
-                                  </p>
-                                </div>
-                              )}
-                            </div>
+           <ResponsiveContainer width="100%" height="100%">
+             <ComposedChart data={historicalChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }} barGap={6}>
+               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
+               <YAxis hide tickFormatter={formatCompactBRL} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 13}} />
+               <Tooltip 
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload.find(p => p.dataKey === 'valor');
+                      const meta = payload.find(p => p.dataKey === 'meta');
+                      const entry = historicalChartData.find(d => d.name === label);
+                      return (
+                        <div className="bg-white p-3 border border-slate-100 shadow-xl rounded-xl">
+                          <p className="text-sm font-bold text-slate-800 mb-2 truncate capitalize">{label}</p>
+                          <div className="space-y-1.5">
+                            {data && (
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-slate-800" />
+                                <p className="text-sm text-slate-600 font-semibold whitespace-nowrap">
+                                  Total: <span className="text-slate-900">{formatBRL(Number(data.value))}</span>
+                                </p>
+                              </div>
+                            )}
+                            {entry?.fabrica > 0 && (
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                                <p className="text-xs text-slate-500 whitespace-nowrap">
+                                  Fábrica: <span className="font-bold text-blue-700">{formatBRL(entry.fabrica)}</span>
+                                </p>
+                              </div>
+                            )}
+                            {entry?.montagem > 0 && (
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                                <p className="text-xs text-slate-500 whitespace-nowrap">
+                                  Montagem: <span className="font-bold text-amber-700">{formatBRL(entry.montagem)}</span>
+                                </p>
+                              </div>
+                            )}
+                            {meta && (
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
+                                <p className="text-sm text-slate-500 font-medium whitespace-nowrap">
+                                  Meta: <span className="text-slate-900">{formatBRL(Number(meta.value))}</span>
+                                </p>
+                              </div>
+                            )}
                           </div>
-                        );
-                      }
-                      return null;
-                    }}
-                    cursor={{fill: '#f1f5f9'}}
-                  />
-                 <Bar dataKey="meta" radius={[4, 4, 0, 0]} fill="#e2e8f0" barSize={30}>
-                    <LabelList dataKey="meta" position="top" formatter={formatCompactBRL} fill="#94a3b8" fontSize={10} fontWeight="medium" />
-                  </Bar>
-                 <Bar dataKey="valor" radius={[4, 4, 0, 0]} barSize={30}>
-                    {historicalChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={TABLEAU10[index % TABLEAU10.length]} />
-                    ))}
-                    <LabelList dataKey="valor" position="top" formatter={formatCompactBRL} fill="#334155" fontSize={12} fontWeight="bold" />
-                 </Bar>
-                 <Line
-                    type="monotone"
-                    dataKey="trend"
-                    stroke="#ef4444"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={false}
-                    activeDot={false}
-                    animationDuration={1500}
-                  />
-               </ComposedChart>
-             </ResponsiveContainer>
-           ) : (
-             <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-3 border-2 border-dashed border-slate-100 rounded-xl">
-                <History size={48} className="opacity-20" />
-                <div className="text-center font-medium">
-                  <p>Nenhum dado histórico encontrado.</p>
-                  <p className="text-xs font-normal opacity-60">Utilize o grupo "Histórico de Desempenho" para popular este gráfico.</p>
-                </div>
-             </div>
-           )}
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                  cursor={{fill: '#f1f5f9'}}
+                />
+               <Bar dataKey="meta" radius={[4, 4, 0, 0]} fill="#e2e8f0" barSize={30}>
+                  <LabelList dataKey="meta" position="top" formatter={formatBRL} fill="#94a3b8" fontSize={9} fontWeight="medium" />
+                </Bar>
+               <Bar dataKey="valor" radius={[4, 4, 0, 0]} barSize={30}>
+                  {historicalChartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={TABLEAU10[index % TABLEAU10.length]} />
+                  ))}
+                  <LabelList dataKey="valor" position="top" formatter={formatBRL} fill="#334155" fontSize={11} fontWeight="bold" />
+               </Bar>
+               <Line
+                  type="monotone"
+                  dataKey="trend"
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  activeDot={false}
+                  animationDuration={1500}
+                />
+             </ComposedChart>
+           </ResponsiveContainer>
          </div>
       </div>
     </div>
