@@ -922,10 +922,10 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
   };
 
   return (
-    <div className="p-6 bg-[#f5f6f8] min-h-full space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Desempenho Oficial</h2>
-        <div className="flex items-center gap-4">
+    <div className="p-4 md:p-6 bg-[#f5f6f8] min-h-full space-y-6 overflow-x-hidden">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <h2 className="text-xl md:text-2xl font-bold text-slate-800 tracking-tight">Desempenho Oficial</h2>
+        <div className="flex flex-wrap items-center gap-3 md:gap-4">
           <div className="flex items-center gap-2">
             <label className="text-sm text-slate-600 font-medium whitespace-nowrap">Mês:</label>
             <select 
@@ -976,52 +976,52 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       </div>
 
       {/* Grid de KPIs - Altura Padronizada */}
-      <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12 gap-4 items-stretch">
-        <div className="xl:col-span-1 h-full">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12 gap-3 md:gap-4 items-stretch">
+        <div className="col-span-1 xl:col-span-1 h-full">
           <KPICard title="Projetos" value={uniqueProjects} icon={<Briefcase size={20} />} />
         </div>
         
-        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm flex flex-col justify-between xl:col-span-1 h-full min-h-[100px]">
-          <div className="flex items-center justify-between text-slate-500 pb-2">
+        <div className="bg-white rounded-lg p-3 md:p-4 border border-slate-200 shadow-sm flex flex-col justify-between col-span-1 xl:col-span-1 h-full min-h-[90px] md:min-h-[100px]">
+          <div className="flex items-center justify-between text-slate-500 pb-1 md:pb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Conclusão</span>
             <Target size={16} className="text-blue-500" />
           </div>
           <div>
-            <div className="text-xl font-bold text-slate-800">{conclusaoGeral.toFixed(1)}%</div>
+            <div className="text-lg md:text-xl font-bold text-slate-800">{conclusaoGeral.toFixed(1)}%</div>
           </div>
         </div>
 
-        <div className="xl:col-span-3 h-full">
+        <div className="col-span-2 md:col-span-2 xl:col-span-3 h-full">
           <KPICard title={`Produção (${currentMonthName})`} value={formatBRL(totalFilteredValue)} subtitle={selectedWeek === 'all' ? `Total acumulado` : `Semana ${selectedWeek.replace('semana0', '')}`} icon={<Activity size={20} className="text-emerald-500"/>} />
         </div>
         
-        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm flex flex-col justify-between xl:col-span-1 h-full min-h-[100px]">
-          <div className="flex items-center justify-between text-slate-500 pb-2">
+        <div className="bg-white rounded-lg p-3 md:p-4 border border-slate-200 shadow-sm flex flex-col justify-between col-span-1 xl:col-span-1 h-full min-h-[90px] md:min-h-[100px]">
+          <div className="flex items-center justify-between text-slate-500 pb-1 md:pb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Atingimento</span>
             <TrendingUp size={16} className={totalFilteredValue >= monthlyGoal ? "text-emerald-500" : "text-amber-500"} />
           </div>
           <div>
-            <div className={`text-xl font-bold ${totalFilteredValue >= monthlyGoal ? 'text-emerald-600' : 'text-slate-800'}`}>
+            <div className={`text-lg md:text-xl font-bold ${totalFilteredValue >= monthlyGoal ? 'text-emerald-600' : 'text-slate-800'}`}>
               {monthlyGoal > 0 ? ((totalFilteredValue / monthlyGoal) * 100).toFixed(0) : 0}%
             </div>
           </div>
         </div>
 
-        <div className="xl:col-span-2 h-full">
+        <div className="col-span-1 md:col-span-2 xl:col-span-2 h-full">
           <KPICard title={`Orçado (${currentMonthName})`} value={formatBRL(valorProjetadoMes)} subtitle="Projetado p/ entrega" icon={<Zap size={20} className="text-amber-500" />} />
         </div>
         
-        <div className="xl:col-span-3 h-full">
+        <div className="col-span-2 md:col-span-2 xl:col-span-3 h-full">
           <KPICard title={`Fechado (${prevMonthName})`} value={formatBRL(valueMesAnterior)} subtitle="Faturamento anterior" icon={<History size={20} className="text-slate-400" />} />
         </div>
 
-        <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm flex flex-col justify-between xl:col-span-1 h-full min-h-[100px]">
-          <div className="flex items-center justify-between text-slate-500 pb-2">
+        <div className="bg-white rounded-lg p-3 md:p-4 border border-slate-200 shadow-sm flex flex-col justify-between col-span-1 md:col-span-2 xl:col-span-1 h-full min-h-[90px] md:min-h-[100px]">
+          <div className="flex items-center justify-between text-slate-500 pb-1 md:pb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 truncate">MoM</span>
             {totalFilteredValue >= valueMesAnterior ? <TrendingUp size={16} className="text-emerald-500" /> : <TrendingDown size={16} className="text-red-600" />}
           </div>
           <div>
-            <div className={`text-xl font-bold ${totalFilteredValue >= valueMesAnterior ? 'text-emerald-600' : 'text-red-600'}`}>
+            <div className={`text-lg md:text-xl font-bold ${totalFilteredValue >= valueMesAnterior ? 'text-emerald-600' : 'text-red-600'}`}>
               {valueMesAnterior > 0 ? (((totalFilteredValue - valueMesAnterior) / valueMesAnterior) * 100).toFixed(0) : '100'}%
             </div>
           </div>
