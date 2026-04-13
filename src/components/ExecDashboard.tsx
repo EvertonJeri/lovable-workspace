@@ -854,6 +854,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     let currentRemainingGoal = monthlyGoal;
     let currentRemainingDays = totalWorkingDays;
     const metas = new Array(5).fill(0);
+    const originalMetas = new Array(5).fill(0);
     
     const year = getYear(displayMonthDate);
     const monthIdx = getMonth(displayMonthDate);
@@ -888,48 +889,22 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     }
 
     const isMonthPast = isSelectedMonthPast;
-    const isMonthFuture = (getYear(displayMonthDate) > getYear(now)) || (getYear(displayMonthDate) === getYear(now) && getMonth(displayMonthDate) > getMonth(now));
-    const isCurrentMonth = !isMonthPast && !isMonthFuture && getMonth(displayMonthDate) === getMonth(now);
-
-    if (isCurrentMonth) {
-      // Lógica de Redistribuição Dinâmica (Rolling Goal)
-      let accumulatedDiff = 0;
-      for (let i = 0; i < 5; i++) {
-        const d = weekWorkingDays[i];
-        if (d <= 0) {
-          metas[i] = 0;
-          continue;
-        }
-
-        const isWeekFinished = now.getDate() > (weekEndDates[i] || 99);
-        const originalWeeklyMeta = totalWorkingDays > 0 ? (monthlyGoal * d) / totalWorkingDays : 0;
-        
-        if (isWeekFinished) {
-          const actualProd = productionByWeek[i] || 0;
-          metas[i] = originalWeeklyMeta; // Mostramos a meta original para ver a diferença no gráfico
-          accumulatedDiff += (originalWeeklyMeta - actualProd);
-        } else {
-          // Semana ativa ou futura: recebe a redistribuição da diferença acumulada
-          const remainingDays = weekWorkingDays.slice(i).reduce((a, b) => a + b, 0);
-          const redistribution = remainingDays > 0 ? (accumulatedDiff * (d / remainingDays)) : 0;
-          metas[i] = Math.max(0, originalWeeklyMeta + redistribution);
-        }
-      }
-    } else {
-      // Lógica Estática (Proporcional) para meses passados ou futuros
-      for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 5; i++) {
         const d = weekWorkingDays[i];
         if (d > 0 && totalWorkingDays > 0) {
-          metas[i] = (monthlyGoal * d) / totalWorkingDays;
+            metas[i] = (monthlyGoal * d) / totalWorkingDays;
+        } else {
+            metas[i] = 0;
         }
-      }
+        originalMetas[i] = metas[i];
     }
 
     const finalData = totalValueByWeek
       .map((d, i) => {
         const d_meta = metas[i] || 0;
+        const d_original = originalMetas[i] || 0;
         const d_hasDays = weekWorkingDays[i] > 0;
-        return { ...d, meta: d_meta, hasDays: d_hasDays };
+        return { ...d, meta: d_meta, metaOriginal: d_original, hasDays: d_hasDays };
       })
       .filter(d => (selectedWeek === 'all' ? true : d.key === selectedWeek));
 
@@ -1114,22 +1089,33 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
                             </div>
                           )}
                           {metaData && (
-                            <div className="flex items-center justify-between gap-4 pt-1 border-t border-slate-100 mt-1">
-                              <div className="flex items-center gap-1.5">
-                                <div className="w-2 h-2 rounded-full bg-slate-200" />
-                                <p className="text-xs text-slate-400 font-medium">Meta</p>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <p className="text-xs font-bold text-slate-500">{formatBRL(Number(metaData.value))}</p>
-                                {Number(metaData.value) > 0 && (() => {
-                                  const pct = ((total - Number(metaData.value)) / Number(metaData.value)) * 100;
-                                  const isAbove = pct >= 0;
-                                  return (
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${isAbove ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
-                                      {isAbove ? '+' : ''}{pct.toFixed(0)}%
-                                    </span>
-                                  );
-                                })()}
+                            <div className="flex flex-col gap-1 pt-1 border-t border-slate-100 mt-1">
+                              {payload[0].payload.metaOriginal !== undefined && Math.abs(payload[0].payload.metaOriginal - Number(metaData.value)) > 1 && (
+                                <div className="flex items-center justify-between gap-4">
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-2 h-2 rounded-full bg-slate-100" />
+                                    <p className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Meta Original</p>
+                                  </div>
+                                  <p className="text-[10px] font-bold text-slate-400 line-through">{formatBRL(payload[0].payload.metaOriginal)}</p>
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-2 h-2 rounded-full bg-slate-300" />
+                                  <p className="text-xs text-slate-500 font-bold whitespace-nowrap">Meta Atualizada</p>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <p className="text-xs font-bold text-slate-600">{formatBRL(Number(metaData.value))}</p>
+                                  {Number(metaData.value) > 0 && (() => {
+                                    const pct = ((total - Number(metaData.value)) / Number(metaData.value)) * 100;
+                                    const isAbove = pct >= 0;
+                                    return (
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${isAbove ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
+                                        {isAbove ? '+' : ''}{pct.toFixed(0)}%
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
                               </div>
                             </div>
                           )}
@@ -1139,7 +1125,9 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
                   }
                   return null;
                 }} />
-                <Bar dataKey="meta" radius={[4, 4, 0, 0]} fill="#e2e8f0" barSize={22} />
+                <Bar dataKey="meta" radius={[4, 4, 0, 0]} fill="#e2e8f0" barSize={22}>
+                  <LabelList dataKey="meta" position="top" formatter={formatCompactBRL} fill="#94a3b8" fontSize={10} fontWeight="medium" />
+                </Bar>
                 <Bar dataKey="valor" radius={[4, 4, 0, 0]} barSize={22}>
                   {weeklyChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={TABLEAU10[index % TABLEAU10.length]} />)}
                   <LabelList dataKey="valor" position="top" formatter={formatCompactBRL} fill="#0f172a" fontSize={11} fontWeight="bold" />
