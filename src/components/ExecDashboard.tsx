@@ -485,7 +485,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       const semana03 = parseNum(val('semana03', ['sem03', 's3', 'semana03', 'semana 03']));
       const semana04 = parseNum(val('semana04', ['sem04', 's4', 'semana04', 'semana 04']));
       const semana05 = parseNum(val('semana05', ['sem05', 's5', 'semana05', 'semana 05']));
-      const mesAnterior = parseNum(val('mesAnterior', ['Mês anterior', 'Mês Anterior', 'Mês ant', 'Mes Anterior']));
+      const mes_fechado = parseNum(val('mesAnterior', ['Mês anterior', 'Mês Anterior', 'Mês ant', 'Mes Anterior', 'mes_fechado', 'mês formula']));
 
       const dataEntregaRaw = val('dataEntrega', ['entrega', 'data de entrega', 'prazo', 'delivery']);
       let dataEntrega: Date | null = null;
@@ -514,7 +514,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         semana03,
         semana04,
         semana05,
-        mesAnterior,
+        mes_fechado,
         dataEntrega,
         status: String(val('status', ['status'])) || 'default',
         isHistory: isHistoryGroup,
@@ -655,8 +655,20 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     });
     const uniqueProjects = projectSet.size;
 
-    const percentSum = scopedItems.reduce((acc, curr) => acc + curr.activePercentual, 0);
-    const conclusaoGeral = scopedItems.length > 0 ? percentSum / scopedItems.length : 0;
+    // Calcular conclusão baseada no faturado real vs orçado (apenas itens não históricos)
+    let totalProducedInScope = 0;
+    let totalBudgetInScope = 0;
+    scopedItems.forEach(item => {
+      if (item.isHistory) return; // Ignorar histórico no KPI de conclusão
+      const budget = item.orado || 0;
+      if (budget <= 0) return; // IGNORAR LINHAS SEM ORÇAMENTO
+      
+      const weeklySumPerc = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
+      const weeklyProduced = (weeklySumPerc * budget) / 100;
+      totalProducedInScope += (item.mes_fechado || 0) + weeklyProduced;
+      totalBudgetInScope += budget;
+    });
+    const conclusaoGeral = totalBudgetInScope > 0 ? (totalProducedInScope / totalBudgetInScope) * 100 : 0;
 
     const semanas = ['semana01', 'semana02', 'semana03', 'semana04', 'semana05'] as const;
     const valueByWeek: Record<string, number> = { semana01: 0, semana02: 0, semana03: 0, semana04: 0, semana05: 0 };
@@ -760,16 +772,14 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
           // Se for histórico e o mês tiver sub-linhas, ignoramos a linha pai para não duplicar.
           if (isHistory && monthsWithSubrows.has(prevMonthIdx) && !isSubrow) return;
 
-          const statusNorm = normalizeSearch(item.status);
-          const isConcluido = statusNorm.includes('concluido') || statusNorm.includes('feito') || statusNorm.includes('done') || statusNorm.includes('pago');
-          const weeklySum = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
+          const budget = item.orado || 0;
+          const weeklySumPerc = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
+          const weeklyValue = (weeklySumPerc * budget) / 100;
 
           if (isHistory) {
-            valueMesAnterior += (weeklySum || item.orado || 0);
-          } else if (isConcluido) {
-            valueMesAnterior += item.orado || 0;
+            valueMesAnterior += (weeklyValue || budget || 0);
           } else {
-            valueMesAnterior += (weeklySum * (item.orado || 0)) / 100;
+            valueMesAnterior += weeklyValue;
           }
         }
       });
@@ -777,13 +787,28 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
     const gs: Record<string, any> = {};
     scopedItems.forEach(i => {
-      if (!gs[i.groupId]) gs[i.groupId] = { id: i.groupId, name: i.groupName, percentSum: 0, oradoSum: 0, count: 0, pendentes: 0 };
-      gs[i.groupId].percentSum += i.activePercentual;
-      gs[i.groupId].oradoSum += i.orado || 0;
+      if (i.isHistory) return; // O Histórico não deve aparecer no Status dos Projetos
+      const budget = i.orado || 0;
+      if (budget <= 0) return; // IGNORAR LINHAS SEM ORÇAMENTO NO STATUS DO PROJETO
+      
+      if (!gs[i.groupId]) gs[i.groupId] = { id: i.groupId, name: i.groupName, producedSum: 0, oradoSum: 0, count: 0, pendentes: 0 };
+      
+      const weeklySumPerc = (i.semana01 || 0) + (i.semana02 || 0) + (i.semana03 || 0) + (i.semana04 || 0) + (i.semana05 || 0);
+      const currentWeeksProduced = (weeklySumPerc * budget) / 100;
+      const totalProduction = (i.mes_fechado || 0) + currentWeeksProduced;
+      
+      gs[i.groupId].producedSum += totalProduction;
+      gs[i.groupId].oradoSum += budget;
       gs[i.groupId].count += 1;
-      if (i.activePercentual < 100) gs[i.groupId].pendentes += 1;
+      
+      const itemPercent = budget > 0 ? (totalProduction / budget) * 100 : 0;
+      if (itemPercent < 99) gs[i.groupId].pendentes += 1;
     });
-    const groupSummaries = Object.values(gs).map(g => ({ ...g, avgPercent: g.count > 0 ? g.percentSum / g.count : 0 })).sort((a, b) => b.oradoSum - a.oradoSum);
+
+    const groupSummaries = Object.values(gs).map(g => ({ 
+      ...g, 
+      avgPercent: g.oradoSum > 0 ? (g.producedSum / g.oradoSum) * 100 : 0 
+    })).sort((a, b) => b.oradoSum - a.oradoSum);
 
     const historicalData: any[] = [];
     if (historyGroup) {
