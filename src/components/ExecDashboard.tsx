@@ -50,6 +50,7 @@ const TABLEAU10 = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc9
 export default function ExecDashboard({ board, selectedMonthExternal, onMonthChangeExternal, onBoardRefresh }: ExecDashboardProps) {
   const [selectedWeek, setSelectedWeek] = useState<string>('all');
   const [selectedSector, setSelectedSector] = useState<string>('all');
+  const [selectedProject, setSelectedProject] = useState<string>('all');
   const selectedMonth = selectedMonthExternal || String(new Date().getMonth());
   const [monthlyGoal, setMonthlyGoal] = useState<number>(300000);
   const [includeSaturdays, setIncludeSaturdays] = useState<boolean>(false);
@@ -673,14 +674,87 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     });
   }, [allItems, selectedMonth, isSelectedMonthPast, selectedSector]);
 
-  const {
-    uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes, weeklyBreakdown, breakdownTotals
-  } = useMemo(() => {
+  const { uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes, weeklyBreakdown, breakdownTotals, sectorSummaries } = useMemo(() => {
+    const activeItems = workItems.map(item => ({
+      ...item,
+      activePercentual: selectedWeek === 'all' ? item.percentual : (item[selectedWeek as keyof typeof item] as number || 0)
+    }));
+
+    // Itens estendidos para Produção/Gráficos/Status: Inclui adiantamentos (já estão no activeItems do workItems)
+    const scopedItems = activeItems.filter(item => !item.isHistory);
+
+    // Mapear produção histórica por nome de projeto (apenas linhas pai no grupo histórico)
+    const historicalProdByName: Record<string, number> = {};
+    allItems.forEach(i => {
+      if (i.isHistory && !i.isHistorySubrow) {
+        const normName = normalizeSearch(i.name);
+        historicalProdByName[normName] = (historicalProdByName[normName] || 0) + (i.orado || 0);
+      }
+    });
+
+    const currentMonthStart = startOfMonth(now);
+    const monthIdxFilter = selectedMonth === 'all' ? -1 : parseInt(selectedMonth);
+    
+    // Calcular a base de itens para o mês atual, não importando o projeto selecionado
+    // É isso que preencherá a lista "Status dos Projetos"
+    const baseMetaMonthItems = activeItems.filter(item => {
+      if (item.isHistory) return false;
+      if (selectedMonth === 'all') return item.dataEntrega && item.dataEntrega >= currentMonthStart;
+      return item.dataEntrega && getMonth(item.dataEntrega) === monthIdxFilter && getYear(item.dataEntrega) === now.getFullYear();
+    });
+
+    const gs: Record<string, any> = {};
+    baseMetaMonthItems.forEach(i => {
+      if (i.isHistory) return; // Filtramos aqui pois queremos os cards dos projetos ATIVOS
+      const budget = i.orado || 0;
+      if (budget <= 0) return; // IGNORAR LINHAS SEM ORÇAMENTO NO STATUS DO PROJETO
+      
+      if (!gs[i.groupId]) {
+        // Buscar se existe histórico acumulado para este projeto pelo nome do grupo
+        const groupNameNorm = normalizeSearch(i.groupName);
+        const accumulatedFromHistory = historicalProdByName[groupNameNorm] || 0;
+        
+        gs[i.groupId] = { 
+          id: i.groupId, 
+          name: i.groupName, 
+          histSum: accumulatedFromHistory, // Valor vindo do grupo Histórico
+          producedSum: 0, 
+          oradoSum: 0, 
+          count: 0, 
+          pendentes: 0 
+        };
+      }
+      
+      const weeklySumPerc = (i.semana01 || 0) + (i.semana02 || 0) + (i.semana03 || 0) + (i.semana04 || 0) + (i.semana05 || 0);
+      const currentWeeksProduced = (weeklySumPerc * budget) / 100;
+      
+      // Para itens ATIVOS, o mes_fechado (Mês anterior) costuma ser uma porcentagem (ex: 40%)
+      const prevMonthProduced = i.isHistory ? (i.mes_fechado || 0) : ((i.mes_fechado || 0) * budget) / 100;
+      
+      gs[i.groupId].producedSum += prevMonthProduced + currentWeeksProduced;
+      gs[i.groupId].oradoSum += budget;
+      gs[i.groupId].count += 1;
+      
+      const totalItemProduced = prevMonthProduced + currentWeeksProduced;
+      const itemPercent = budget > 0 ? (totalItemProduced / budget) * 100 : 0;
+      if (itemPercent < 99) gs[i.groupId].pendentes += 1;
+    });
+
+    const groupSummaries = Object.values(gs).map(g => {
+      const totalProduced = g.histSum + g.producedSum; // Soma Histórico (Pai) + Colunas (Mês Anterior + Semanas)
+      return { 
+        ...g, 
+        avgPercent: g.oradoSum > 0 ? (totalProduced / g.oradoSum) * 100 : 0 
+      };
+    }).sort((a, b) => b.avgPercent - a.avgPercent);
+
+    // AGORA filtras o resto do dashboard baseado no projeto selecionado
+    const dashboardItems = selectedProject === 'all' ? activeItems : activeItems.filter(item => item.groupId === selectedProject);
+
     // 0. Valor Projetado (Orçado) - Estritamente o que vence no mês selecionado
     let valorProjetadoMes = 0;
     if (selectedMonth === 'all') {
-      const currentMonthStart = startOfMonth(now);
-      allItems.forEach(item => {
+      dashboardItems.forEach(item => {
         if (!item.isHistory && item.dataEntrega && item.dataEntrega >= currentMonthStart) {
           valorProjetadoMes += (item.orado || 0);
         }
@@ -688,30 +762,19 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     } else {
       const monthIdx = parseInt(selectedMonth);
       const currentYear = now.getFullYear();
-      allItems.forEach(item => {
+      dashboardItems.forEach(item => {
         if (!item.isHistory && item.dataEntrega && getMonth(item.dataEntrega) === monthIdx && getYear(item.dataEntrega) === currentYear) {
           valorProjetadoMes += (item.orado || 0);
         }
       });
     }
 
-    const currentMonthStart = startOfMonth(now);
-
-    const activeItems = workItems.map(item => ({
-      ...item,
-      activePercentual: selectedWeek === 'all' ? item.percentual : (item[selectedWeek as keyof typeof item] as number || 0)
-    }));
-
     // ScopedItems para meta do mês (Orçado/Saldo): Apenas itens datados para o mês selecionado
-    const monthIdx = selectedMonth === 'all' ? -1 : parseInt(selectedMonth);
-    const metaMonthItems = activeItems.filter(item => {
+    const metaMonthItems = dashboardItems.filter(item => {
       if (item.isHistory) return false;
       if (selectedMonth === 'all') return item.dataEntrega && item.dataEntrega >= currentMonthStart;
-      return item.dataEntrega && getMonth(item.dataEntrega) === monthIdx && getYear(item.dataEntrega) === now.getFullYear();
+      return item.dataEntrega && getMonth(item.dataEntrega) === monthIdxFilter && getYear(item.dataEntrega) === now.getFullYear();
     });
-
-    // Itens estendidos para Produção/Gráficos/Status: Inclui adiantamentos (já estão no activeItems do workItems)
-    const scopedItems = activeItems.filter(item => !item.isHistory);
 
     const projectSet = new Set<string>();
     metaMonthItems.forEach(item => {
@@ -754,14 +817,14 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
     // Indexar quais meses têm sub-linhas de Produção/Montagem para evitar duplicidade no total
     const monthsWithSubrowsInCurrentView = new Set<string>();
-    activeItems.forEach(item => {
+    dashboardItems.forEach(item => {
       if (item.isHistory && (item as any).isHistorySubrow && item.dataEntrega) {
         const key = `${getYear(item.dataEntrega)}-${getMonth(item.dataEntrega)}`;
         monthsWithSubrowsInCurrentView.add(key);
       }
     });
 
-    activeItems.forEach(item => {
+    dashboardItems.forEach(item => {
       const isHistory = item.isHistory;
       const budget = item.orado || 0;
       const statusNorm = normalizeSearch(item.status);
@@ -897,59 +960,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       });
     }
 
-    // 1. Mapear produção histórica por nome de projeto (apenas linhas pai no grupo histórico)
-    const historicalProdByName: Record<string, number> = {};
-    allItems.forEach(i => {
-      if (i.isHistory && !i.isHistorySubrow) {
-        const normName = normalizeSearch(i.name);
-        historicalProdByName[normName] = (historicalProdByName[normName] || 0) + (i.orado || 0);
-      }
-    });
-
-    const gs: Record<string, any> = {};
-    scopedItems.forEach(i => {
-      if (i.isHistory) return; // Filtramos aqui pois queremos os cards dos projetos ATIVOS
-      const budget = i.orado || 0;
-      if (budget <= 0) return; // IGNORAR LINHAS SEM ORÇAMENTO NO STATUS DO PROJETO
-      
-      if (!gs[i.groupId]) {
-        // Buscar se existe histórico acumulado para este projeto pelo nome do grupo
-        const groupNameNorm = normalizeSearch(i.groupName);
-        const accumulatedFromHistory = historicalProdByName[groupNameNorm] || 0;
-        
-        gs[i.groupId] = { 
-          id: i.groupId, 
-          name: i.groupName, 
-          histSum: accumulatedFromHistory, // Valor vindo do grupo Histórico
-          producedSum: 0, 
-          oradoSum: 0, 
-          count: 0, 
-          pendentes: 0 
-        };
-      }
-      
-      const weeklySumPerc = (i.semana01 || 0) + (i.semana02 || 0) + (i.semana03 || 0) + (i.semana04 || 0) + (i.semana05 || 0);
-      const currentWeeksProduced = (weeklySumPerc * budget) / 100;
-      
-      // Para itens ATIVOS, o mes_fechado (Mês anterior) costuma ser uma porcentagem (ex: 40%)
-      const prevMonthProduced = i.isHistory ? (i.mes_fechado || 0) : ((i.mes_fechado || 0) * budget) / 100;
-      
-      gs[i.groupId].producedSum += prevMonthProduced + currentWeeksProduced;
-      gs[i.groupId].oradoSum += budget;
-      gs[i.groupId].count += 1;
-      
-      const totalItemProduced = prevMonthProduced + currentWeeksProduced;
-      const itemPercent = budget > 0 ? (totalItemProduced / budget) * 100 : 0;
-      if (itemPercent < 99) gs[i.groupId].pendentes += 1;
-    });
-
-    const groupSummaries = Object.values(gs).map(g => {
-      const totalProduced = g.histSum + g.producedSum; // Soma Histórico (Pai) + Colunas (Mês Anterior + Semanas)
-      return { 
-        ...g, 
-        avgPercent: g.oradoSum > 0 ? (totalProduced / g.oradoSum) * 100 : 0 
-      };
-    }).sort((a, b) => b.avgPercent - a.avgPercent);
+    // Group summaries already computed above to always show all projects!
 
     const historicalData: any[] = [];
     if (historyGroup) {
@@ -1005,8 +1016,32 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       }).filter(h => h.valor > 0 || h.meta > 0 || h.isCurrent));
     }
 
-    return { uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes, weeklyBreakdown, breakdownTotals };
-  }, [workItems, selectedWeek, board.groups, allItems, historyGroupId, selectedMonth, isSelectedMonthPast, now]);
+    // Calcular conclusão por setor - APENAS itens com data de entrega no mês selecionado
+    const sectorMap: Record<string, { produced: number; budget: number }> = {};
+    metaMonthItems.forEach(item => {
+      if (item.isHistory) return;
+      const budget = item.orado || 0;
+      if (budget <= 0) return;
+      const sector = item.subitemName || 'Sem Setor';
+      if (!sectorMap[sector]) sectorMap[sector] = { produced: 0, budget: 0 };
+      const statusNorm = normalizeSearch(item.status);
+      const isConcluido = statusNorm.includes('concluido') || statusNorm.includes('feito') || statusNorm.includes('done') || statusNorm.includes('pago');
+      const weeklySumPerc = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
+      let producedValue = (isConcluido && weeklySumPerc === 0) ? budget : (weeklySumPerc * budget) / 100;
+      sectorMap[sector].produced += producedValue;
+      sectorMap[sector].budget += budget;
+    });
+    const sectorSummaries = Object.entries(sectorMap)
+      .map(([name, data]) => ({
+        name,
+        avgPercent: data.budget > 0 ? (data.produced / data.budget) * 100 : 0,
+        produced: data.produced,
+        budget: data.budget,
+      }))
+      .sort((a, b) => b.avgPercent - a.avgPercent);
+
+    return { uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes, weeklyBreakdown, breakdownTotals, sectorSummaries };
+  }, [workItems, selectedWeek, selectedProject, board.groups, allItems, historyGroupId, selectedMonth, isSelectedMonthPast, now]);
 
 
   const weeklyChartData = useMemo(() => {
@@ -1213,8 +1248,10 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm lg:col-span-2 flex flex-col">
+      {/* Grid principal: 3 colunas x 2 linhas com posicionamento explícito */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-2 gap-6">
+        {/* Detalhamento Semanal - Linha 1, colunas 1-2 */}
+        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm lg:col-span-2 lg:row-start-1 flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold text-slate-800 tracking-tight">Detalhamento Semanal ({currentMonthName})</h3>
             <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-4 py-2 flex flex-col items-end shadow-sm">
@@ -1323,92 +1360,127 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
+        {/* Produção vs Montagem - mesma largura que Detalhamento Semanal (col-span-2), linha 2 */}
+        {(weeklyBreakdown.length > 0 || breakdownTotals.total > 0) && (
+          <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col lg:col-span-2 lg:row-start-2">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-slate-100 rounded-md">
+                  <Layout size={18} className="text-slate-600" />
+                </div>
+                <h3 className="text-base font-bold text-slate-800 tracking-tight">Produção vs Montagem ({currentMonthName})</h3>
+              </div>
+              <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500 inline-block"/>Fábrica/Produção</span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block"/>Montagem/Desmontagem</span>
+              </div>
+            </div>
+            <div className="overflow-x-auto flex-1">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="text-left py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Semana</th>
+                    <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Total</th>
+                    <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-blue-400">Fábrica (R$)</th>
+                    <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-blue-400">%</th>
+                    <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-amber-500">Montagem (R$)</th>
+                    <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-amber-500">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weeklyBreakdown.map((row, i) => (
+                    <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                      <td className="py-2.5 px-3 font-semibold text-slate-700">{row.label}</td>
+                      <td className="py-2.5 px-3 text-right font-bold text-slate-800">{formatBRL(row.total)}</td>
+                      <td className="py-2.5 px-3 text-right text-blue-700 font-medium">{formatBRL(row.fabrica)}</td>
+                      <td className="py-2.5 px-3 text-right">
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded font-bold text-[11px]">{row.pctFabrica.toFixed(0)}%</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-amber-700 font-medium">{formatBRL(row.montagem)}</td>
+                      <td className="py-2.5 px-3 text-right">
+                        {row.montagem > 0 ? (
+                          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded font-bold text-[11px]">{row.pctMontagem.toFixed(0)}%</span>
+                        ) : (
+                          <span className="text-slate-300 text-[11px]">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-800">
+                    <td className="py-3 px-3 font-black text-white text-[11px] uppercase tracking-wider rounded-bl-lg">TOTAL</td>
+                    <td className="py-3 px-3 text-right font-black text-white">{formatBRL(breakdownTotals.total)}</td>
+                    <td className="py-3 px-3 text-right font-bold text-blue-200">{formatBRL(breakdownTotals.fabrica)}</td>
+                    <td className="py-3 px-3 text-right">
+                      <span className="px-2 py-0.5 bg-blue-700 text-white rounded font-black text-[11px]">{breakdownTotals.pctFabrica.toFixed(0)}%</span>
+                    </td>
+                    <td className="py-3 px-3 text-right font-bold text-amber-200">{formatBRL(breakdownTotals.montagem)}</td>
+                    <td className="py-3 px-3 text-right rounded-br-lg">
+                      {breakdownTotals.montagem > 0 ? (
+                        <span className="px-2 py-0.5 bg-amber-600 text-white rounded font-black text-[11px]">{breakdownTotals.pctMontagem.toFixed(0)}%</span>
+                      ) : (
+                        <span className="text-slate-500 text-[11px]">—</span>
+                      )}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Status dos Projetos - Linha 1, coluna 3 */}
+        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col overflow-hidden lg:col-start-3 lg:row-start-1">
           <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Status dos Projetos ({currentMonthName})</h3>
           <div className="overflow-y-auto pr-2 space-y-3" style={{ height: '280px' }}>
              {groupSummaries.map(proj => (
-               <div key={proj.id} className="bg-white border border-slate-100 rounded-md p-3 hover:bg-slate-50 transition-colors">
+               <div 
+                  key={proj.id} 
+                  onClick={() => setSelectedProject(prev => prev === proj.id ? 'all' : proj.id)}
+                  className={`bg-white border rounded-md p-3 hover:bg-slate-50 transition-colors cursor-pointer ${
+                    selectedProject === proj.id ? 'border-blue-500 ring-1 ring-blue-500 shadow-md' : 'border-slate-100'
+                  }`}
+               >
                   <div className="flex justify-between items-center mb-2">
-                     <span className="font-semibold text-sm truncate text-slate-800" title={proj.name}>{proj.name}</span>
+                     <span className={`font-semibold text-sm truncate ${selectedProject === proj.id ? 'text-blue-700' : 'text-slate-800'}`} title={proj.name}>{proj.name}</span>
                      <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${proj.avgPercent >= 90 ? 'bg-emerald-100 text-emerald-700' : proj.avgPercent < 50 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{proj.avgPercent.toFixed(0)}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-1.5 mb-2"><div className="bg-slate-800 h-1.5 rounded-full transition-all duration-500" style={{ width: `${Math.min(proj.avgPercent, 100)}%` }} /></div>
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 mb-2"><div className={`h-1.5 rounded-full transition-all duration-500 ${selectedProject === proj.id ? 'bg-blue-600' : 'bg-slate-800'}`} style={{ width: `${Math.min(proj.avgPercent, 100)}%` }} /></div>
                   <div className="flex justify-between text-xs text-slate-500"><span>{proj.pendentes} pendentes</span><span className="font-medium text-slate-700">{formatCompactBRL(proj.oradoSum)} orçado</span></div>
                </div>
              ))}
           </div>
         </div>
-      </div>
 
-      {/* Breakdown: Produção vs Montagem */}
-      {(weeklyBreakdown.length > 0 || breakdownTotals.total > 0) && (
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-slate-100 rounded-md">
-                <Layout size={18} className="text-slate-600" />
-              </div>
-              <h3 className="text-base font-bold text-slate-800 tracking-tight">Produção vs Montagem ({currentMonthName})</h3>
-            </div>
-            <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500 inline-block"/>Fábrica/Produção</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block"/>Montagem/Desmontagem</span>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="text-left py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Semana</th>
-                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Total</th>
-                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-blue-400">Fábrica (R$)</th>
-                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-blue-400">%</th>
-                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-amber-500">Montagem (R$)</th>
-                  <th className="text-right py-2 px-3 text-[10px] font-bold uppercase tracking-wider text-amber-500">%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {weeklyBreakdown.map((row, i) => (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="py-2.5 px-3 font-semibold text-slate-700">{row.label}</td>
-                    <td className="py-2.5 px-3 text-right font-bold text-slate-800">{formatBRL(row.total)}</td>
-                    <td className="py-2.5 px-3 text-right text-blue-700 font-medium">{formatBRL(row.fabrica)}</td>
-                    <td className="py-2.5 px-3 text-right">
-                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded font-bold text-[11px]">{row.pctFabrica.toFixed(0)}%</span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-amber-700 font-medium">{formatBRL(row.montagem)}</td>
-                    <td className="py-2.5 px-3 text-right">
-                      {row.montagem > 0 ? (
-                        <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded font-bold text-[11px]">{row.pctMontagem.toFixed(0)}%</span>
-                      ) : (
-                        <span className="text-slate-300 text-[11px]">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-800">
-                  <td className="py-3 px-3 font-black text-white text-[11px] uppercase tracking-wider rounded-bl-lg">TOTAL</td>
-                  <td className="py-3 px-3 text-right font-black text-white">{formatBRL(breakdownTotals.total)}</td>
-                  <td className="py-3 px-3 text-right font-bold text-blue-200">{formatBRL(breakdownTotals.fabrica)}</td>
-                  <td className="py-3 px-3 text-right">
-                    <span className="px-2 py-0.5 bg-blue-700 text-white rounded font-black text-[11px]">{breakdownTotals.pctFabrica.toFixed(0)}%</span>
-                  </td>
-                  <td className="py-3 px-3 text-right font-bold text-amber-200">{formatBRL(breakdownTotals.montagem)}</td>
-                  <td className="py-3 px-3 text-right rounded-br-lg">
-                    {breakdownTotals.montagem > 0 ? (
-                      <span className="px-2 py-0.5 bg-amber-600 text-white rounded font-black text-[11px]">{breakdownTotals.pctMontagem.toFixed(0)}%</span>
-                    ) : (
-                      <span className="text-slate-500 text-[11px]">—</span>
-                    )}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+        {/* Conclusão por Setor - Linha 2, coluna 3 */}
+        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col overflow-hidden lg:col-start-3 lg:row-start-2">
+          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Conclusão por Setor ({currentMonthName})</h3>
+          <div className="overflow-y-auto pr-2 space-y-3" style={{ height: '280px' }}>
+            {sectorSummaries.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center mt-8">Nenhum setor com produção no período.</p>
+            ) : (
+              sectorSummaries.map((sector, i) => (
+                <div key={i} className="bg-white border border-slate-100 rounded-md p-3 hover:bg-slate-50 transition-colors">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-semibold text-sm truncate text-slate-800" title={sector.name}>{sector.name}</span>
+                    <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${sector.avgPercent >= 90 ? 'bg-emerald-100 text-emerald-700' : sector.avgPercent < 50 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{sector.avgPercent.toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 mb-2">
+                    <div className={`h-1.5 rounded-full transition-all duration-500 ${sector.avgPercent >= 90 ? 'bg-emerald-500' : sector.avgPercent < 50 ? 'bg-red-400' : 'bg-blue-500'}`} style={{ width: `${Math.min(sector.avgPercent, 100)}%` }} />
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>{formatCompactBRL(sector.produced)} produzido</span>
+                    <span className="font-medium text-slate-700">{formatCompactBRL(sector.budget)} orçado</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
-      )}
+      </div>
+
+
 
       <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm">
          <div className="flex items-center justify-between mb-6">
