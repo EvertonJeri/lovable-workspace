@@ -136,7 +136,7 @@ export default function Index() {
             }
           } else {
             setBoards(sampleBoards);
-            if (!activeBoardId) setActiveBoardId(sampleBoards[1].id);
+            if (!activeBoardId) setActiveBoardId(sampleBoards[0].id);
           }
         }
       } catch (err: any) {
@@ -153,6 +153,17 @@ export default function Index() {
     loadData();
     return () => { mounted = false; };
   }, []);
+
+  // Ensure PPCP board has Chat and Files columns
+  useEffect(() => {
+    if (activeBoard && (activeBoard.id === 'ppcp-cronograma' || activeBoard.title.includes('PPCP'))) {
+      const hasFiles = activeBoard.columns.some(c => c.type === 'files');
+      const hasChat = activeBoard.columns.some(c => c.type === 'chat');
+      
+      if (!hasFiles) handleAddColumn('files', 'Arquivos', activeBoard.id);
+      if (!hasChat) handleAddColumn('chat', 'Atualizações', activeBoard.id);
+    }
+  }, [activeBoard?.id]);
 
   // Recarregar equipe sempre que voltar para a tabela ou dashboard
   useEffect(() => {

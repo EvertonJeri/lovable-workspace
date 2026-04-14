@@ -3,7 +3,7 @@ import { Board, Task, GroupColor, STATUS_LABELS, PRIORITY_LABELS, BoardColumn, T
 import { 
   ChevronDown, GripVertical, Plus, MessageCircle, Star, MoreHorizontal, Check, UserPlus, Trash2, Pencil, HelpCircle, 
   Archive, Copy, ArrowRight, ArrowLeft, X, Hash, Percent, DollarSign, Calendar as CalendarIcon, User, Info, AlertCircle, Settings, Download, Box,
-  Search
+  Search, Paperclip, Send, Eye
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO, isValid, startOfDay, endOfDay } from 'date-fns';
@@ -13,6 +13,7 @@ import 'react-day-picker/dist/style.css';
 import { Calendar } from '@/components/ui/calendar';
 import { evaluateFormula } from '@/lib/formula';
 import FormulaDialog from './FormulaDialog';
+import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,7 +43,8 @@ const priorityColors: Record<string, string> = {
 
 const columnIcons: Record<string, React.ElementType> = {
   status: Check, priority: AlertCircle, person: User, timeline: CalendarIcon,
-  number: Hash, progress: Percent, formula: HelpCircle, text: Info
+  number: Hash, progress: Percent, formula: HelpCircle, text: Info,
+  files: Paperclip, chat: MessageCircle
 };
 
 interface TableViewProps {
@@ -583,6 +585,203 @@ export default function TableView({
               : String(formulaResult || '')}
           </div>
         );
+      case 'chat':
+        const updates = Array.isArray(value) ? value : [];
+        return (
+          <div className="w-full h-full flex items-center justify-center">
+            <Popover>
+              <PopoverTrigger asChild>
+                <div className="relative cursor-pointer group/chat" onClick={e => e.stopPropagation()}>
+                  <MessageCircle className={cn("w-5 h-5 transition-colors", updates.length > 0 ? "text-blue-500 fill-blue-50" : "text-slate-300 group-hover/chat:text-blue-400")} />
+                  {updates.length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-blue-600 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+                      {updates.length}
+                    </span>
+                  )}
+                </div>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-0 bg-white border border-slate-200 shadow-2xl rounded-xl z-[200] overflow-hidden flex flex-col max-h-[450px]" align="center" onClick={e => e.stopPropagation()}>
+                <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-[#323338]">Atualizações</h3>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{updates.length} mensagens</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar min-h-[100px]">
+                  {updates.length === 0 ? (
+                    <div className="h-24 flex flex-col items-center justify-center text-center px-4">
+                      <MessageCircle className="w-8 h-8 text-slate-200 mb-2" />
+                      <p className="text-xs text-slate-400">Nenhuma atualização ainda.</p>
+                    </div>
+                  ) : (
+                    updates.map((update: any) => (
+                      <div key={update.id} className="flex gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-700 shrink-0 shadow-sm border border-white">
+                          {update.author?.name?.split(' ').map((n: any) => n[0]).join('') || 'U'}
+                        </div>
+                        <div className="flex-1 bg-slate-50 p-3 rounded-2xl rounded-tl-none border border-slate-100">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-bold text-[#323338]">{update.author?.name || 'Usuário'}</span>
+                            <span className="text-[9px] text-slate-400 font-medium">Há pouco</span>
+                          </div>
+                          <p className="text-xs text-slate-600 leading-relaxed">{update.text}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="p-4 bg-white border-t border-slate-100">
+                  <div className="relative">
+                    <textarea 
+                      className="w-full p-3 pr-10 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none min-h-[80px] resize-none transition-all"
+                      placeholder="Escreva uma atualização..."
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          const text = e.currentTarget.value.trim();
+                          if (text) {
+                            const newUpdate = {
+                              id: `upd-${Date.now()}`,
+                              text,
+                              createdAt: new Date().toISOString(),
+                              author: { name: 'Você', avatar: null }
+                            };
+                            onUpdateTask({ ...task, columnValues: { ...task.columnValues, [column.id]: [...updates, newUpdate] } });
+                            e.currentTarget.value = '';
+                          }
+                        }
+                      }}
+                    />
+                    <button className="absolute bottom-2 right-2 p-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors shadow-sm active:scale-90">
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        );
+      case 'files':
+        const files = Array.isArray(value) ? value : [];
+        return (
+          <div className="w-full h-full flex items-center justify-center">
+             <Popover>
+               <PopoverTrigger asChild>
+                 <div className="w-full h-full flex items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors" onClick={e => e.stopPropagation()}>
+                    {files.length > 0 ? (
+                      <div className="flex -space-x-1 items-center justify-center">
+                        {files.slice(0, 3).map((file: any) => (
+                          <div key={file.id} className="w-7 h-7 rounded bg-white border border-slate-200 flex items-center justify-center shadow-sm relative group/fileicon" title={file.name}>
+                            <Paperclip className="w-3.5 h-3.5 text-blue-500" />
+                          </div>
+                        ))}
+                        {files.length > 3 && (
+                          <div className="w-7 h-7 rounded bg-slate-100 border border-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-500 shadow-sm">
+                            +{files.length - 3}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-1.5 rounded-full hover:bg-blue-50 transition-colors group/addfile">
+                         <Plus className="w-4 h-4 text-slate-300 group-hover/addfile:text-blue-500" />
+                      </div>
+                    )}
+                 </div>
+               </PopoverTrigger>
+               <PopoverContent className="w-72 p-0 bg-white border border-slate-200 shadow-2xl rounded-xl z-[200] overflow-hidden" align="center" onClick={e => e.stopPropagation()}>
+                  <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-[#323338]">Arquivos</h3>
+                    <span className="text-[10px] font-bold text-slate-400">{files.length} anexo(s)</span>
+                  </div>
+                  <div className="p-2 space-y-1 max-h-60 overflow-y-auto custom-scrollbar">
+                    {files.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 text-center py-4">Nenhum arquivo anexado</p>
+                    ) : (
+                      files.map((file: any) => (
+                        <div key={file.id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg group/file">
+                          <div className="w-8 h-8 rounded bg-blue-50 flex items-center justify-center shrink-0">
+                            <Paperclip className="w-3.5 h-3.5 text-blue-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-[#323338] truncate">{file.name}</p>
+                            <p className="text-[9px] text-slate-400 font-medium uppercase">{file.size || '2.4 MB'}</p>
+                          </div>
+                          <div className="flex items-center gap-1 opacity-0 group-hover/file:opacity-100 transition-opacity">
+                            <button 
+                              className="p-1.5 hover:bg-blue-50 text-blue-500 rounded transition-all"
+                              title="Visualizar"
+                              onClick={(e) => {
+                                 e.stopPropagation();
+                                 if (file.url) {
+                                   window.open(file.url, '_blank');
+                                   toast.info(`Abrindo ${file.name}`);
+                                 } else {
+                                   toast.error("Este arquivo não possui conteúdo (apenas exemplo).");
+                                 }
+                              }}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <a 
+                              href={file.url || '#'} 
+                              download={file.name}
+                              className="p-1.5 hover:bg-slate-100 text-slate-500 rounded transition-all flex items-center justify-center"
+                              title="Baixar"
+                              onClick={(e) => {
+                                 e.stopPropagation();
+                                 if (!file.url) {
+                                   e.preventDefault();
+                                   toast.error("Este arquivo não possui conteúdo (apenas exemplo).");
+                                 } else {
+                                   toast.success(`Baixando ${file.name}`);
+                                 }
+                              }}
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+                            <button 
+                              className="p-1.5 hover:bg-red-50 text-red-500 rounded transition-all"
+                              title="Excluir"
+                              onClick={(e) => {
+                                 e.stopPropagation();
+                                 onUpdateTask({ ...task, columnValues: { ...task.columnValues, [column.id]: files.filter((f: any) => f.id !== file.id) } });
+                              }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="p-3 bg-white border-t border-slate-100">
+                    <input 
+                      type="file" 
+                      className="hidden" 
+                      id={`file-upload-${task.id}-${column.id}`}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const newFile = { 
+                            id: `file-${Date.now()}`, 
+                            name: file.name, 
+                            size: (file.size / (1024 * 1024)).toFixed(1) + ' MB',
+                            url: URL.createObjectURL(file)
+                          };
+                          onUpdateTask({ ...task, columnValues: { ...task.columnValues, [column.id]: [...files, newFile] } });
+                        }
+                      }}
+                    />
+                    <button 
+                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-all shadow-md active:scale-95 flex items-center justify-center gap-2"
+                      onClick={() => document.getElementById(`file-upload-${task.id}-${column.id}`)?.click()}
+                    >
+                      <Plus className="w-4 h-4" /> Anexar Arquivo
+                    </button>
+                    <p className="text-[9px] text-center text-slate-400 mt-2">Escolha um arquivo do seu computador</p>
+                  </div>
+               </PopoverContent>
+             </Popover>
+          </div>
+        );
       default:
         if (isEditing) {
           const colType = column.type as string; // Avoid narrowing error in isNumeric
@@ -877,7 +1076,7 @@ export default function TableView({
                              <Plus className="w-4 h-4 text-blue-500 group-hover/plus:scale-110 transition-transform" />
                            </button>
                          </DropdownMenuTrigger>
-                         <DropdownMenuContent className="w-56 p-2 bg-white border border-slate-100 shadow-2xl rounded-xl z-[150]">
+                         <DropdownMenuContent className="w-56 p-2 bg-white border border-slate-100 shadow-2xl rounded-xl z-[150] max-h-80 overflow-y-auto">
                            <div className="px-2 py-1.5 mb-1">
                              <div className="relative">
                                <input 
@@ -934,6 +1133,14 @@ export default function TableView({
                                  <DropdownMenuItem className="flex items-center gap-2.5 px-2 py-2 text-xs hover:bg-slate-50 rounded-lg cursor-pointer transition-colors" onClick={() => onAddColumn('priority', 'Prioridade')}>
                                    <div className="w-5 h-5 rounded bg-red-500 flex items-center justify-center"><AlertCircle className="w-3.5 h-3.5 text-white" /></div>
                                    <span className="font-medium text-[#323338]">Prioridade</span>
+                                 </DropdownMenuItem>
+                                 <DropdownMenuItem className="flex items-center gap-2.5 px-2 py-2 text-xs hover:bg-slate-50 rounded-lg cursor-pointer transition-colors" onClick={() => onAddColumn('files', 'Arquivos')}>
+                                   <div className="w-5 h-5 rounded bg-orange-400 flex items-center justify-center"><Paperclip className="w-3.5 h-3.5 text-white" /></div>
+                                   <span className="font-medium text-[#323338]">Arquivos</span>
+                                 </DropdownMenuItem>
+                                 <DropdownMenuItem className="flex items-center gap-2.5 px-2 py-2 text-xs hover:bg-slate-50 rounded-lg cursor-pointer transition-colors" onClick={() => onAddColumn('chat', 'Atualizações')}>
+                                   <div className="w-5 h-5 rounded bg-indigo-400 flex items-center justify-center"><MessageCircle className="w-3.5 h-3.5 text-white" /></div>
+                                   <span className="font-medium text-[#323338]">Atualizações</span>
                                  </DropdownMenuItem>
                                </div>
                              </div>

@@ -144,3 +144,27 @@ export async function updateMonthlyGoals(year: number, goals: Record<number, { v
     throw err;
   }
 }
+
+export async function uploadFile(file: File) {
+  try {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    // Note: This assumes a bucket named 'task_files' exists and is public
+    const { error: uploadError } = await supabase.storage
+      .from('task_files')
+      .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('task_files')
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  } catch (error) {
+    console.error('Error uploading file:', error);
+    return null;
+  }
+}

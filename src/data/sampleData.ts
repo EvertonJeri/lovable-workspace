@@ -11,6 +11,8 @@ const defaultColumns: BoardColumn[] = [
   { id: 'materialCost', type: 'number', title: 'Custo Material', unit: 'R$', width: 140, summaryType: 'sum', position: 6 },
   { id: 'moCost', type: 'number', title: 'Custo M.O', unit: 'R$', width: 140, summaryType: 'sum', position: 7 },
   { id: 'finalCost', type: 'formula', title: 'Saldo a Executar', formulaExpr: '{Orçamento Job} - ({Orçamento Job} * ({%} / 100))', width: 140, position: 8 },
+  { id: 'files', type: 'files', title: 'Arquivos', width: 100, position: 9 },
+  { id: 'updates', type: 'chat', title: 'Atualizações', width: 100, position: 10 },
 ];
 
 export const sampleBoards: Board[] = [
@@ -32,7 +34,9 @@ export const sampleBoards: Board[] = [
               status: 'done', priority: 'high',
               assignee: [{ id: 'u1', name: 'Gustavo Lima', avatar: 'https://i.pravatar.cc/150?u=gustavo' }],
               timeline: { start: '2026-03-25', end: '2026-03-28' },
-              budget: 433.16, percentage: 100
+              budget: 433.16, percentage: 100,
+              updates: [{ id: 'u1', text: 'Modelo 3D aprovado pelo cliente.', createdAt: '2026-03-28T10:00:00Z', author: { name: 'Gustavo Lima' } }],
+              files: [{ id: 'f1', name: 'projeto_v1.pdf', size: '2.4 MB' }]
             }
           },
           {

@@ -1,7 +1,7 @@
 import { Task, TaskStatus, TaskPriority, STATUS_LABELS, PRIORITY_LABELS, BoardColumn, ColumnType } from '@/types/board';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { StatusBadge, PriorityBadge } from './StatusBadge';
-import { Calendar, User, Flag, Tag, Hash, Type, Link as LinkIcon, Paperclip, BarChart, Clock, Trash2, ArrowRight } from 'lucide-react';
+import { Calendar, User, Flag, Tag, Hash, Type, Link as LinkIcon, Paperclip, BarChart, Clock, Trash2, ArrowRight, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -56,10 +56,17 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate, onD
       case 'link': return LinkIcon;
       case 'files': return Paperclip;
       case 'progress': return BarChart;
+      case 'chat': return MessageCircle;
       case 'time': return Clock;
       default: return Type;
     }
   };
+
+  const [activeTab, setActiveTab] = useState<'updates' | 'files' | 'activity'>('updates');
+  const chatCol = columns.find(c => c.type === 'chat');
+  const filesCol = columns.find(c => c.type === 'files');
+  const updates = chatCol ? (task.columnValues[chatCol.id] as any[]) || [] : [];
+  const files = filesCol ? (task.columnValues[filesCol.id] as any[]) || [] : [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange => !onOpenChange && onClose()}>
@@ -78,6 +85,7 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate, onD
 
           <div className="space-y-8">
             {columns.map((column) => {
+              if (column.type === 'chat' || column.type === 'files') return null; // Don't show these in the generic property list, they have dedicated tabs
               const Icon = getIcon(column.type);
               const value = task.columnValues[column.id];
 
@@ -234,36 +242,98 @@ export default function TaskDialog({ task, columns, open, onClose, onUpdate, onD
 
           <div className="mt-12 pt-8 border-t border-slate-100">
              <div className="flex gap-8 mb-8 border-b border-slate-100">
-                <button className="pb-3 text-sm font-bold border-b-2 border-blue-500 text-blue-600">Atualizações</button>
-                <button className="pb-3 text-sm font-semibold text-[#676879] hover:text-[#323338] border-b-2 border-transparent hover:border-slate-300 transition-colors">Arquivos</button>
-                <button className="pb-3 text-sm font-semibold text-[#676879] hover:text-[#323338] border-b-2 border-transparent hover:border-slate-300 transition-colors">Atividade</button>
+                <button 
+                  onClick={() => setActiveTab('updates')}
+                  className={cn("pb-3 text-sm transition-all border-b-2", activeTab === 'updates' ? "font-bold border-blue-500 text-blue-600" : "font-semibold text-[#676879] border-transparent hover:border-slate-300")}
+                >
+                  Atualizações ({updates.length})
+                </button>
+                <button 
+                  onClick={() => setActiveTab('files')}
+                  className={cn("pb-3 text-sm transition-all border-b-2", activeTab === 'files' ? "font-bold border-blue-500 text-blue-600" : "font-semibold text-[#676879] border-transparent hover:border-slate-300")}
+                >
+                  Arquivos ({files.length})
+                </button>
+                <button 
+                  onClick={() => setActiveTab('activity')}
+                  className={cn("pb-3 text-sm transition-all border-b-2", activeTab === 'activity' ? "font-bold border-blue-500 text-blue-600" : "font-semibold text-[#676879] border-transparent hover:border-slate-300")}
+                >
+                  Atividade
+                </button>
              </div>
 
              <div className="space-y-8">
-                <div className="relative group">
-                   <textarea 
-                     className="w-full p-4 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none min-h-[120px] shadow-sm transition-all"
-                     placeholder="Escreva uma atualização..."
-                   />
-                   <div className="absolute bottom-3 right-3 flex gap-2">
-                       <button className="px-4 py-2 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 transition-all shadow-md active:scale-95">Postar</button>
-                   </div>
-                </div>
+                {activeTab === 'updates' && (
+                  <>
+                    <div className="relative group">
+                       <textarea 
+                         className="w-full p-4 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none min-h-[120px] shadow-sm transition-all"
+                         placeholder="Escreva uma atualização..."
+                         onKeyDown={(e) => {
+                           if (e.key === 'Enter' && !e.shiftKey) {
+                             e.preventDefault();
+                             const text = e.currentTarget.value.trim();
+                             if (text && chatCol) {
+                               const newUpdate = { id: `upd-${Date.now()}`, text, createdAt: new Date().toISOString(), author: { name: 'Você', avatar: null } };
+                               updateColumnValue(chatCol.id, [...updates, newUpdate]);
+                               e.currentTarget.value = '';
+                             }
+                           }
+                         }}
+                       />
+                       <div className="absolute bottom-3 right-3 flex gap-2">
+                           <button className="px-4 py-2 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 transition-all shadow-md active:scale-95">Postar</button>
+                       </div>
+                    </div>
 
-                <div className="space-y-6">
-                   <div className="flex gap-4 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
-                      <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm">AS</div>
-                      <div className="flex-1">
-                         <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm font-bold text-[#323338]">Ana Silva</span>
-                            <span className="text-[10px] text-slate-400 font-medium bg-slate-100 px-2 py-0.5 rounded-full">Há 2 horas</span>
+                    <div className="space-y-6">
+                       {updates.slice().reverse().map((upd: any) => (
+                         <div key={upd.id} className="flex gap-4 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
+                            <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm uppercase">
+                              {upd.author?.name?.split(' ').map((n: string) => n[0]).join('') || '?'}
+                            </div>
+                            <div className="flex-1">
+                               <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-sm font-bold text-[#323338]">{upd.author?.name || 'Membro'}</span>
+                                  <span className="text-[10px] text-slate-400 font-medium bg-slate-100 px-2 py-0.5 rounded-full">
+                                    {isValid(parseISO(upd.createdAt)) ? format(parseISO(upd.createdAt), "dd 'de' MMM, HH:mm", { locale: ptBR }) : 'Agora'}
+                                  </span>
+                               </div>
+                               <p className="text-sm text-[#323338] leading-relaxed">
+                                  {upd.text}
+                               </p>
+                            </div>
                          </div>
-                         <p className="text-sm text-[#323338] leading-relaxed">
-                            Já finalizei o modelo 3D. Podem revisar na pasta do projeto?
-                         </p>
+                       ))}
+                       {updates.length === 0 && <p className="text-center text-sm text-slate-400 py-10">Nenhuma atualização ainda.</p>}
+                    </div>
+                  </>
+                )}
+
+                {activeTab === 'files' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    {files.map((file: any) => (
+                      <div key={file.id} className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md transition-all group/fileitem">
+                        <div className="w-12 h-12 rounded bg-blue-50 flex items-center justify-center text-blue-500">
+                          <Paperclip className="w-6 h-6" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-[#323338] truncate">{file.name}</p>
+                          <p className="text-[10px] text-slate-400 uppercase">{file.size}</p>
+                        </div>
+                        <div className="flex gap-1 opacity-0 group-hover/fileitem:opacity-100 transition-opacity">
+                          {file.url && (
+                             <button onClick={() => window.open(file.url, '_blank')} className="p-2 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors"><MessageCircle className="w-4 h-4" /></button>
+                          )}
+                          <button onClick={() => {
+                             if (filesCol) updateColumnValue(filesCol.id, files.filter((f: any) => f.id !== file.id));
+                          }} className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+                        </div>
                       </div>
-                   </div>
-                </div>
+                    ))}
+                    {files.length === 0 && <p className="col-span-2 text-center text-sm text-slate-400 py-20 border-2 border-dashed border-slate-100 rounded-2xl">Arraste arquivos aqui ou use a coluna na tabela.</p>}
+                  </div>
+                )}
              </div>
           </div>
         </div>

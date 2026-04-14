@@ -6,9 +6,9 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, TrendingDown, CheckCircle, 
-  Briefcase, Activity, Target, Zap, History, Layout, Archive, Loader2
+  Briefcase, Activity, Target, Zap, History, Layout, Archive, Loader2, Box
 } from 'lucide-react';
-import { format, parseISO, startOfMonth, subMonths, getMonth, setMonth, getDaysInMonth, getYear, endOfMonth, lastDayOfMonth } from 'date-fns';
+import { format, parseISO, subMonths, getMonth, getDaysInMonth, getYear, startOfMonth, endOfMonth, getWeeksInMonth, setMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { createTask, updateTaskValue, fetchMonthlyGoals } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -647,62 +647,100 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         if (normalizeSearch(item.subitemName) !== normalizeSearch(selectedSector)) return false;
       }
 
-      // Para itens normais, relaxamos a regra da data de entrega para permitir que a produção semanal 
-      // seja contabilizada independentemente do prazo final.
-      return true;
+      // Para itens normais, seguimos a data de entrega, mas permitimos adiantamento
+      if (selectedMonth === 'all') {
+        const currentMonthStart = startOfMonth(now);
+        return item.dataEntrega && item.dataEntrega >= currentMonthStart;
+      } else {
+        const monthIdx = parseInt(selectedMonth);
+        const currentYear = now.getFullYear();
+        const isSelectedCurrentMonth = monthIdx === now.getMonth() && currentYear === now.getFullYear();
+
+        const matchesDate = item.dataEntrega && 
+                           getMonth(item.dataEntrega) === monthIdx && 
+                           getYear(item.dataEntrega) === currentYear;
+        
+        // Regra de Adiantamento: Se for futuro, mas tiver progresso nas semanas, no percentual geral ou status alterado, entra no mês vigente
+        const hasWeeklyProgress = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0) > 0;
+        const hasGeneralProgress = (item.percentual || 0) > 0;
+        const statusNorm = normalizeSearch(item.status);
+        const hasActiveStatus = statusNorm !== "" && statusNorm !== "nao iniciado" && statusNorm !== "pendente";
+        
+        const isFutureAdvance = isSelectedCurrentMonth && item.dataEntrega && item.dataEntrega > endOfMonth(now) && (hasWeeklyProgress || hasGeneralProgress || hasActiveStatus);
+
+        return matchesDate || isFutureAdvance;
+      }
     });
   }, [allItems, selectedMonth, isSelectedMonthPast, selectedSector]);
 
   const {
     uniqueProjects, totalValueByWeek, conclusaoGeral, valueMesAnterior, groupSummaries, historicalData, valorProjetadoMes, weeklyBreakdown, breakdownTotals
   } = useMemo(() => {
-    // 0. Valor Projetado (Entrega no Mês)
+    // 0. Valor Projetado (Orçado) - Estritamente o que vence no mês selecionado
     let valorProjetadoMes = 0;
-    if (selectedMonth !== 'all') {
-      const monthIdx = parseInt(selectedMonth);
+    if (selectedMonth === 'all') {
+      const currentMonthStart = startOfMonth(now);
       allItems.forEach(item => {
-        // Para o Orçado, incluímos tudo que estava planejado para o mês, inclusive o que já foi para o histórico
-        if (item.dataEntrega && getMonth(item.dataEntrega) === monthIdx && getYear(item.dataEntrega) === now.getFullYear()) {
+        if (!item.isHistory && item.dataEntrega && item.dataEntrega >= currentMonthStart) {
+          valorProjetadoMes += (item.orado || 0);
+        }
+      });
+    } else {
+      const monthIdx = parseInt(selectedMonth);
+      const currentYear = now.getFullYear();
+      allItems.forEach(item => {
+        if (!item.isHistory && item.dataEntrega && getMonth(item.dataEntrega) === monthIdx && getYear(item.dataEntrega) === currentYear) {
           valorProjetadoMes += (item.orado || 0);
         }
       });
     }
+
+    const currentMonthStart = startOfMonth(now);
 
     const activeItems = workItems.map(item => ({
       ...item,
       activePercentual: selectedWeek === 'all' ? item.percentual : (item[selectedWeek as keyof typeof item] as number || 0)
     }));
 
-    const isSelectedCurrentMonth = selectedMonth !== 'all' && parseInt(selectedMonth) === now.getMonth();
-
-    const scopedItems = selectedMonth === 'all' ? activeItems : activeItems.filter(item => {
-      // Se o item não tem data de entrega, consideramos como oficial apenas se estivermos vendo o mês atual
-      if (!item.dataEntrega) return !item.isHistory && isSelectedCurrentMonth;
-      return getMonth(item.dataEntrega) === parseInt(selectedMonth);
+    // ScopedItems para meta do mês (Orçado/Saldo): Apenas itens datados para o mês selecionado
+    const monthIdx = selectedMonth === 'all' ? -1 : parseInt(selectedMonth);
+    const metaMonthItems = activeItems.filter(item => {
+      if (item.isHistory) return false;
+      if (selectedMonth === 'all') return item.dataEntrega && item.dataEntrega >= currentMonthStart;
+      return item.dataEntrega && getMonth(item.dataEntrega) === monthIdx && getYear(item.dataEntrega) === now.getFullYear();
     });
 
+    // Itens estendidos para Produção/Gráficos/Status: Inclui adiantamentos (já estão no activeItems do workItems)
+    const scopedItems = activeItems.filter(item => !item.isHistory);
+
     const projectSet = new Set<string>();
-    allItems.forEach(item => {
-      if (item.isHistory || item.groupId === historyGroupId) return;
-      if (selectedMonth === 'all') {
-        projectSet.add(item.groupId);
-      } else if (item.dataEntrega && getMonth(item.dataEntrega) === parseInt(selectedMonth)) {
+    metaMonthItems.forEach(item => {
+      if (item.groupId && item.groupId !== historyGroupId) {
         projectSet.add(item.groupId);
       }
     });
     const uniqueProjects = projectSet.size;
 
-    // Calcular conclusão baseada no faturado real vs orçado (apenas itens não históricos)
+    // Calcular conclusão baseada na produção do mês vs orçado (apenas itens oficiais do mês)
     let totalProducedInScope = 0;
     let totalBudgetInScope = 0;
-    scopedItems.forEach(item => {
-      if (item.isHistory) return; // Ignorar histórico no KPI de conclusão
+    metaMonthItems.forEach(item => {
       const budget = item.orado || 0;
-      if (budget <= 0) return; // IGNORAR LINHAS SEM ORÇAMENTO
+      if (budget <= 0) return;
       
+      const statusNorm = normalizeSearch(item.status);
+      const isConcluido = statusNorm.includes('concluido') || statusNorm.includes('feito') || statusNorm.includes('done') || statusNorm.includes('pago');
       const weeklySumPerc = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
-      const weeklyProduced = (weeklySumPerc * budget) / 100;
-      totalProducedInScope += (item.mes_fechado || 0) + weeklyProduced;
+      
+      // Se concluído e sem semanas preenchidas, assume 100%. Senão, usa as semanas.
+      let producedValue = 0;
+      if (isConcluido && weeklySumPerc === 0) {
+        producedValue = budget;
+      } else {
+        producedValue = (weeklySumPerc * budget) / 100;
+      }
+      
+      totalProducedInScope += producedValue;
       totalBudgetInScope += budget;
     });
     const conclusaoGeral = totalBudgetInScope > 0 ? (totalProducedInScope / totalBudgetInScope) * 100 : 0;
@@ -730,8 +768,8 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       const isConcluido = statusNorm.includes('concluido') || statusNorm.includes('feito') || statusNorm.includes('done') || statusNorm.includes('pago');
       const targetMap = (item as any).isMontagem ? valueByWeekMontagem : valueByWeekFabrica;
 
-      const isCurrentRealMonth = !item.dataEntrega || getMonth(item.dataEntrega) === now.getMonth();
-      const shouldShowInWeekly = selectedMonth === 'all' ? isCurrentRealMonth : (item.dataEntrega ? getMonth(item.dataEntrega) === parseInt(selectedMonth) : isSelectedCurrentMonth);
+      // Já que os itens já foram filtrados no workItems, permitimos que todos entrem no cálculo semanal
+      const shouldShowInWeekly = true;
       if (!shouldShowInWeekly) return;
 
       if (isHistory) {
@@ -740,7 +778,35 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         const monthKey = item.dataEntrega ? `${getYear(item.dataEntrega)}-${getMonth(item.dataEntrega)}` : '';
         if (monthKey && monthsWithSubrowsInCurrentView.has(monthKey) && !isSubrow) return;
 
-        semanas.forEach(sem => { valueByWeek[sem] += (item[sem] || 0); targetMap[sem] += (item[sem] || 0); });
+        const weeklyPctSum = semanas.reduce((acc, sem) => acc + (item[sem] || 0), 0);
+        
+        if (weeklyPctSum > 0) {
+          // Se o histórico já tem o detalhamento semanal, usamos ele
+          semanas.forEach(sem => { 
+            const val = (item[sem] || 0);
+            valueByWeek[sem] += val; 
+            targetMap[sem] += val; 
+          });
+        } else if (budget > 0 && item.dataEntrega) {
+          // Se não tem detalhamento, distribuímos o Orçado total
+          const itemMonth = getMonth(item.dataEntrega);
+          const itemYear = getYear(item.dataEntrega);
+          
+          // Para Jan, Fev, Mar de 2026, forçamos 4 semanas conforme solicitado
+          let numWeeks = getWeeksInMonth(item.dataEntrega, { weekStartsOn: 0 });
+          if (itemYear === 2026 && itemMonth <= 2) { // 0=Jan, 1=Feb, 2=Mar
+            numWeeks = 4;
+          }
+          
+          const distributedValue = budget / numWeeks;
+          
+          semanas.forEach((sem, idx) => {
+            if (idx < numWeeks) {
+              valueByWeek[sem] += distributedValue;
+              targetMap[sem] += distributedValue;
+            }
+          });
+        }
       } else if (isConcluido) {
         const weeklyPctSum = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
         if (weeklyPctSum > 0) {
@@ -755,13 +821,21 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       }
     });
 
-    const totalValueByWeek = Object.entries(valueByWeek).map(([name, val]) => ({ 
-      name: name.replace('semana0', 'Semana '), 
-      key: name, 
-      valor: val,
-      fabrica: valueByWeekFabrica[name] || 0,
-      montagem: valueByWeekMontagem[name] || 0,
-    }));
+    // Para Jan, Fev, Mar 2026 (dados importados), limitamos a 4 semanas no gráfico
+    const selectedMonthIdx = selectedMonth === 'all' ? now.getMonth() : parseInt(selectedMonth);
+    const selectedYear = now.getFullYear();
+    const maxWeeks = (selectedYear === 2026 && selectedMonthIdx <= 2) ? 4 : 5;
+
+    const totalValueByWeek = Object.entries(valueByWeek)
+      .map(([name, val], idx) => ({ 
+        name: name.replace('semana0', 'Semana '), 
+        key: name, 
+        valor: val,
+        fabrica: valueByWeekFabrica[name] || 0,
+        montagem: valueByWeekMontagem[name] || 0,
+        _idx: idx,
+      }))
+      .filter(d => d._idx < maxWeeks);
 
     // Tabela de Breakdown por tipo
     const weeklyBreakdown = semanas.map((sem, i) => {
@@ -776,18 +850,23 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         pctFabrica: total > 0 ? (fabrica / total) * 100 : 0,
         pctMontagem: total > 0 ? (montagem / total) * 100 : 0,
       };
-    }).filter(w => w.total > 0);
+    }).filter((w, i) => i < maxWeeks && w.total > 0);
 
     // Totais gerais
     const totalGeral = Object.values(valueByWeek).reduce((a, b) => a + b, 0);
     const totalFabrica = Object.values(valueByWeekFabrica).reduce((a, b) => a + b, 0);
     const totalMontagem = Object.values(valueByWeekMontagem).reduce((a, b) => a + b, 0);
+    const displayTotalFilteredValue = totalGeral; // Tudo o que foi produzido (incluindo adiantamentos)
+    const totalSaldoProduzir = Math.max(0, valorProjetadoMes - displayTotalFilteredValue);
+
     const breakdownTotals = {
       total: totalGeral,
       fabrica: totalFabrica,
       montagem: totalMontagem,
       pctFabrica: totalGeral > 0 ? (totalFabrica / totalGeral) * 100 : 0,
       pctMontagem: totalGeral > 0 ? (totalMontagem / totalGeral) * 100 : 0,
+      saldoProduzir: totalSaldoProduzir,
+      displayProduction: displayTotalFilteredValue
     };
 
 
@@ -1062,7 +1141,6 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         </div>
       </div>
 
-      {/* Grid de KPIs - Altura Padronizada */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12 gap-3 md:gap-4 items-stretch">
         <div className="col-span-1 xl:col-span-1 h-full">
           <KPICard title="Projetos" value={uniqueProjects} icon={<Briefcase size={20} />} />
@@ -1078,39 +1156,59 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
           </div>
         </div>
 
-        <div className="col-span-2 md:col-span-2 xl:col-span-3 h-full">
-          <KPICard title={`Produção (${currentMonthName})`} value={formatBRL(totalFilteredValue)} subtitle={selectedWeek === 'all' ? `Total acumulado` : `Semana ${selectedWeek.replace('semana0', '')}`} icon={<Activity size={20} className="text-emerald-500"/>} />
+        <div className="col-span-2 md:col-span-2 xl:col-span-2 h-full">
+          <KPICard 
+            title={selectedMonth === 'all' ? "Produção Real (Total)" : `Produção (${currentMonthName})`} 
+            value={formatBRL(breakdownTotals.displayProduction)} 
+            subtitle={selectedWeek === 'all' ? `Acumulado no período` : `Semana ${selectedWeek.replace('semana0', '')}`} 
+            icon={<Activity size={20} className="text-emerald-500"/>} 
+          />
         </div>
-        
-        <div className="bg-white rounded-lg p-3 md:p-4 border border-slate-200 shadow-sm flex flex-col justify-between col-span-1 xl:col-span-1 h-full min-h-[90px] md:min-h-[100px]">
-          <div className="flex items-center justify-between text-slate-500 pb-1 md:pb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Atingimento</span>
-            <TrendingUp size={16} className={totalFilteredValue >= monthlyGoal ? "text-emerald-500" : "text-amber-500"} />
-          </div>
-          <div>
-            <div className={`text-lg md:text-xl font-bold ${totalFilteredValue >= monthlyGoal ? 'text-emerald-600' : 'text-slate-800'}`}>
-              {monthlyGoal > 0 ? ((totalFilteredValue / monthlyGoal) * 100).toFixed(0) : 0}%
-            </div>
-          </div>
+
+        <div className="col-span-2 md:col-span-2 xl:col-span-2 h-full">
+          <KPICard 
+            title="Saldo a Produzir" 
+            value={formatBRL(breakdownTotals.saldoProduzir)} 
+            subtitle="Pendente na fábrica" 
+            icon={<Box size={20} className="text-indigo-500" />} 
+          />
         </div>
 
         <div className="col-span-1 md:col-span-2 xl:col-span-2 h-full">
-          <KPICard title={`Orçado (${currentMonthName})`} value={formatBRL(valorProjetadoMes)} subtitle="Projetado p/ entrega" icon={<Zap size={20} className="text-amber-500" />} />
+          <KPICard 
+            title={selectedMonth === 'all' ? "Orçado (Geral)" : `Orçado (${currentMonthName})`} 
+            value={formatBRL(valorProjetadoMes)} 
+            subtitle="Projetado p/ entrega" 
+            icon={<Zap size={20} className="text-amber-500" />} 
+          />
         </div>
         
-        <div className="col-span-2 md:col-span-2 xl:col-span-3 h-full">
+        <div className="col-span-2 md:col-span-2 xl:col-span-2 h-full">
           <KPICard title={`Fechado (${prevMonthName})`} value={formatBRL(valueMesAnterior)} subtitle="Faturamento anterior" icon={<History size={20} className="text-slate-400" />} />
         </div>
 
         <div className="bg-white rounded-lg p-3 md:p-4 border border-slate-200 shadow-sm flex flex-col justify-between col-span-1 md:col-span-2 xl:col-span-1 h-full min-h-[90px] md:min-h-[100px]">
           <div className="flex items-center justify-between text-slate-500 pb-1 md:pb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 truncate">MoM</span>
-            {totalFilteredValue >= valueMesAnterior ? <TrendingUp size={16} className="text-emerald-500" /> : <TrendingDown size={16} className="text-red-600" />}
+            {breakdownTotals.displayProduction >= valueMesAnterior ? <TrendingUp size={16} className="text-emerald-500" /> : <TrendingDown size={16} className="text-red-600" />}
           </div>
           <div>
-            <div className={`text-lg md:text-xl font-bold ${totalFilteredValue >= valueMesAnterior ? 'text-emerald-600' : 'text-red-600'}`}>
-              {valueMesAnterior > 0 ? (((totalFilteredValue - valueMesAnterior) / valueMesAnterior) * 100).toFixed(0) : '100'}%
+            <div className={`text-lg md:text-xl font-bold ${breakdownTotals.displayProduction >= valueMesAnterior ? 'text-emerald-600' : 'text-red-600'}`}>
+              {valueMesAnterior > 0 ? (((breakdownTotals.displayProduction - valueMesAnterior) / valueMesAnterior) * 100).toFixed(0) : '100'}%
             </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg p-3 md:p-4 border border-slate-200 shadow-sm flex flex-col justify-between col-span-1 md:col-span-2 xl:col-span-1 h-full min-h-[90px] md:min-h-[100px]">
+          <div className="flex items-center justify-between text-slate-500 pb-1 md:pb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Atingimento</span>
+            <TrendingUp size={16} className={breakdownTotals.displayProduction >= monthlyGoal ? "text-emerald-500" : "text-amber-500"} />
+          </div>
+          <div>
+            <div className={`text-lg md:text-xl font-bold ${breakdownTotals.displayProduction >= monthlyGoal ? 'text-emerald-600' : 'text-slate-800'}`}>
+              {monthlyGoal > 0 ? ((breakdownTotals.displayProduction / monthlyGoal) * 100).toFixed(0) : 0}%
+            </div>
+            <div className="text-[9px] text-slate-400 font-medium mt-1">Em relação a meta</div>
           </div>
         </div>
       </div>

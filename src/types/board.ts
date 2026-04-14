@@ -12,6 +12,7 @@ export type ColumnType =
   | 'formula' 
   | 'progress' 
   | 'priority'
+  | 'chat'
   | 'time';
 
 export type ViewMode = 'table' | 'kanban' | 'timeline' | 'calendar' | 'dashboard' | 'gantt' | 'ganttJobs' | 'generator';
