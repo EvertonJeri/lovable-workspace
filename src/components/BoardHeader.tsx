@@ -208,6 +208,108 @@ export default function BoardHeader({
 
   const clearFilters = () => onFilterChange({});
 
+  const handleExportCSV = () => {
+    if (!board) return;
+    
+    const normalize = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+    
+    const findVal = (task: any, alternatives: string[]) => {
+      // Direct access if key exists in columns mapping
+      for (const alt of alternatives) {
+        if (task.columnValues[alt] !== undefined) return task.columnValues[alt];
+      }
+      // Search by column title
+      for (const alt of alternatives) {
+        const normAlt = normalize(alt);
+        const col = board.columns.find(c => normalize(c.title) === normAlt);
+        if (col && task.columnValues[col.id] !== undefined) return task.columnValues[col.id];
+      }
+      return '';
+    };
+
+    const parseNum = (v: any) => {
+      if (typeof v === 'number') return v;
+      if (!v) return 0;
+      const clean = String(v).replace(/\s/g, '').replace(',', '.').replace(/[^\d.-]/g, '');
+      return parseFloat(clean) || 0;
+    };
+
+    const headers = [
+      "Projeto", "Setor", "Data Entrega", "Valor Orçado", "Percentual", 
+      "Semana 01", "Semana 02", "Semana 03", "Semana 04", "Semana 05", 
+      "Mês Anterior", "Status", "Ano", "Mes", "Trimestre", "Semestre"
+    ];
+
+    const now = new Date();
+    const rows: string[] = [];
+
+    board.groups.forEach(group => {
+      group.tasks.forEach(task => {
+        const orado = parseNum(findVal(task, ['orado', 'valor orçado', 'budget']));
+        const percentual = parseNum(findVal(task, ['percentual', 'progresso', 'percentage', '%']));
+        const semana01 = parseNum(findVal(task, ['semana 01', 's01', 'sem 01', 'semana 1']));
+        const semana02 = parseNum(findVal(task, ['semana 02', 's02', 'sem 02', 'semana 2']));
+        const semana03 = parseNum(findVal(task, ['semana 03', 's03', 'sem 03', 'semana 3']));
+        const semana04 = parseNum(findVal(task, ['semana 04', 's04', 'sem 04', 'semana 4']));
+        const semana05 = parseNum(findVal(task, ['semana 05', 's05', 'sem 05', 'semana 5']));
+        const mesAnterior = parseNum(findVal(task, ['mês anterior', 'mes anterior', 'histórico', 'mês formula']));
+        const status = String(findVal(task, ['status'])) || 'Pendente';
+        
+        const dataRaw = findVal(task, ['entrega', 'data de entrega', 'prazo', 'delivery']);
+        let dt: Date | null = null;
+        if (dataRaw) {
+          try {
+            const s = String(dataRaw);
+            if (s.includes('/') && s.length <= 10) {
+               const [day, month, year] = s.split('/');
+               dt = new Date(parseInt(year), parseInt(month)-1, parseInt(day));
+            } else {
+               const parsed = new Date(s);
+               if (!isNaN(parsed.getTime())) dt = parsed;
+            }
+          } catch(e) {}
+        }
+        
+        const finalDate = dt || now;
+        const exportYear = finalDate.getFullYear();
+        const exportMonth = finalDate.getMonth() + 1;
+        const exportQuarter = Math.ceil(exportMonth / 3);
+        const exportSemester = exportMonth <= 6 ? 1 : 2;
+
+        const row = [
+          group.title,
+          task.name,
+          dt ? format(dt, 'yyyy-MM-dd') : '',
+          orado,
+          percentual,
+          semana01,
+          semana02,
+          semana03,
+          semana04,
+          semana05,
+          mesAnterior,
+          status,
+          exportYear,
+          exportMonth,
+          exportQuarter,
+          exportSemester
+        ].map(v => String(v ?? '').replace(/;/g, ',')).join(';');
+        
+        rows.push(row);
+      });
+    });
+
+    const csvContent = "\ufeff" + [headers.join(';'), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `tabela_desempenho_${format(now, 'yyyy_MM_dd')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="px-6 pt-6 pb-2 border-b border-border bg-background shadow-sm hover:shadow-md transition-shadow relative z-20">
       <div className="flex items-center justify-between mb-4">
@@ -428,6 +530,16 @@ export default function BoardHeader({
 
           <div className="h-4 w-px bg-slate-200 mx-1" />
           
+          {viewMode === 'table' && title.toLowerCase().includes('desempenho oficial') && (
+            <button 
+              onClick={handleExportCSV}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-emerald-600 hover:bg-emerald-50 transition-all font-bold border border-emerald-100 ml-1"
+            >
+              <Download size={14} />
+              <span>Exportar CSV</span>
+            </button>
+          )}
+
           <button 
             onClick={collapsedCount >= totalGroups ? onExpandAll : onCollapseAll}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-slate-500 hover:bg-slate-100 hover:text-blue-600 transition-all font-bold"

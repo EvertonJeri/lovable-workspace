@@ -987,7 +987,7 @@ export default function Index() {
           <>
             <BoardHeader
               title={activeBoard?.title || 'Sem título'}
-              board={activeBoard}
+              board={filteredBoard || activeBoard}
               viewMode={viewMode}
               onViewChange={setViewMode}
               onAddTask={handleAddTask}
