@@ -245,7 +245,7 @@ export default function BoardHeader({
 
     board.groups.forEach(group => {
       group.tasks.forEach(task => {
-        const orado = parseNum(findVal(task, ['orado', 'valor orçado', 'budget']));
+        const orado = parseNum(findVal(task, ['orado', 'orcado', 'orcamento', 'orçamento', 'valor orçado', 'valor orcado', 'budget']));
         const percentual = parseNum(findVal(task, ['percentual', 'progresso', 'percentage', '%']));
         const semana01 = parseNum(findVal(task, ['semana 01', 's01', 'sem 01', 'semana 1']));
         const semana02 = parseNum(findVal(task, ['semana 02', 's02', 'sem 02', 'semana 2']));
