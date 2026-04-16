@@ -324,7 +324,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         } catch { return; }
         if (!taskDate || taskDate.getMonth() !== monthIdx || taskDate.getFullYear() !== year) return;
 
-        const orado = parseNum(getVal(['orado', 'orcado', 'budget', 'orçamento', 'valor']));
+        const orado = parseNum(getVal(['orado', 'orcado', 'budget', 'orçamento', 'valor', 'valor orçado', 'valor orcado']));
         const statusRaw = normalizeSearch(String(getVal(['status']) || ''));
         const isConcluido = statusRaw.includes('concluido') || statusRaw.includes('feito') || statusRaw.includes('done') || statusRaw.includes('pago');
         const isMontagem = groupTaskCount[g.id] === 1;
@@ -501,7 +501,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       // Para itens ATIVOS, priorizamos buscar a coluna que se chama literalmente "Mês anterior"
       const mesAnteriorCol = (board.columns || []).find(c => {
         const n = normalizeSearch(c.title);
-        return n === 'mesanterior' || n.includes('anterior');
+        return n === 'mesanterior' || n.includes('anterior') || n === 'mesformula';
       });
       const mesAnteriorId = mesAnteriorCol?.id;
 
