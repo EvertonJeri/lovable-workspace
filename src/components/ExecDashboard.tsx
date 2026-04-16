@@ -8,9 +8,10 @@ import {
   TrendingUp, TrendingDown, CheckCircle, 
   Briefcase, Activity, Target, Zap, History, Layout, Archive, Loader2, Box
 } from 'lucide-react';
-import { format, parseISO, subMonths, getMonth, getDaysInMonth, getYear, startOfMonth, endOfMonth, getWeeksInMonth, setMonth } from 'date-fns';
+import { format, parseISO, subMonths, getMonth, getDaysInMonth, getYear, startOfMonth, endOfMonth, getWeeksInMonth, setMonth, lastDayOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { createTask, updateTaskValue, fetchMonthlyGoals } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 const normalizeSearch = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
@@ -135,6 +136,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       }
 
       const dateColId = findColId(['dataEntrega', 'entrega', 'data de entrega', 'prazo', 'DATA DE ENTREGA']);
+      const statusColId = findColId(['status', 'STATUS']);
       const currentYear = new Date().getFullYear();
       let created = 0;
 
