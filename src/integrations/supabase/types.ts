@@ -79,6 +79,33 @@ export type Database = {
         }
         Relationships: []
       }
+      monthly_goals: {
+        Row: {
+          id: string
+          include_saturdays: boolean | null
+          month_idx: number
+          updated_at: string | null
+          value: number | null
+          year: number
+        }
+        Insert: {
+          id?: string
+          include_saturdays?: boolean | null
+          month_idx: number
+          updated_at?: string | null
+          value?: number | null
+          year: number
+        }
+        Update: {
+          id?: string
+          include_saturdays?: boolean | null
+          month_idx?: number
+          updated_at?: string | null
+          value?: number | null
+          year?: number
+        }
+        Relationships: []
+      }
       task_groups: {
         Row: {
           board_id: string | null
