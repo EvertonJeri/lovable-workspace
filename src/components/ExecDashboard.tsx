@@ -488,13 +488,13 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         return parseFloat(s) || 0;
       };
       
-      const percentual = parseNum(val('percentual', ['conclusao', '%', 'progress', 'progresso']));
-      const orado = parseNum(val('orado', ['orcado', 'budget', 'orçamento', 'orcamento', 'valor']));
-      const semana01 = parseNum(val('semana01', ['sem01', 's1', 'semana01', 'semana 01']));
-      const semana02 = parseNum(val('semana02', ['sem02', 's2', 'semana02', 'semana 02']));
-      const semana03 = parseNum(val('semana03', ['sem03', 's3', 'semana03', 'semana 03']));
-      const semana04 = parseNum(val('semana04', ['sem04', 's4', 'semana04', 'semana 04']));
-      const semana05 = parseNum(val('semana05', ['sem05', 's5', 'semana05', 'semana 05']));
+      const percentual = parseNum(val('percentual', ['conclusao', '%', 'progress', 'progresso', 'Percentual']));
+      const orado = parseNum(val('orado', ['orcado', 'budget', 'orçamento', 'orcamento', 'valor', 'valor orçado', 'valor orcado', 'Valor Orçado']));
+      const semana01 = parseNum(val('semana01', ['sem01', 's1', 'semana01', 'semana 01', 'Semana 01']));
+      const semana02 = parseNum(val('semana02', ['sem02', 's2', 'semana02', 'semana 02', 'Semana 02']));
+      const semana03 = parseNum(val('semana03', ['sem03', 's3', 'semana03', 'semana 03', 'Semana 03']));
+      const semana04 = parseNum(val('semana04', ['sem04', 's4', 'semana04', 'semana 04', 'Semana 04']));
+      const semana05 = parseNum(val('semana05', ['sem05', 's5', 'semana05', 'semana 05', 'Semana 05']));
       
       // Scanner inteligente de faturamento/produção acumulada
       let mes_fechado = 0;
@@ -527,7 +527,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         }
       }
 
-      const dataEntregaRaw = val('dataEntrega', ['entrega', 'data de entrega', 'prazo', 'delivery']);
+      const dataEntregaRaw = val('dataEntrega', ['entrega', 'data de entrega', 'prazo', 'delivery', 'Data Entrega', 'data entrega']);
       let dataEntrega: Date | null = null;
       if (dataEntregaRaw) {
         try { 
@@ -546,7 +546,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         name: t.name,
         groupName: g.title,
         groupId: g.id,
-        subitemName: String(val('subitemName', ['setor', 'subitem', 'subitem name', 'responsável', 'assignee'])) || t.name,
+        subitemName: String(val('subitemName', ['setor', 'subitem', 'subitem name', 'responsável', 'assignee', 'Setor'])) || t.name,
         percentual,
         orado,
         semana01,
