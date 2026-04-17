@@ -28,7 +28,9 @@ export default function ImportDialog({ open, onClose, onImport, existingColumns 
       return;
     }
 
-    const rows = text.split('\n').map(r => r.split('\t'));
+    // Support both tab-separated (Excel paste) and semicolon-separated (CSV export)
+    const delimiter = text.includes('\t') ? '\t' : ';';
+    const rows = text.split('\n').map(r => r.split(delimiter));
     if (rows.length < 2) {
       toast.error('Dados insuficientes. Certifique-se de incluir a linha de cabeçalho.');
       return;
@@ -37,9 +39,9 @@ export default function ImportDialog({ open, onClose, onImport, existingColumns 
     // Capture headers from first row
     const headers = rows[0].map(h => h.trim().toLowerCase());
     
-    // Find key indices
-    const nameIdx = headers.findIndex(h => h === 'name' || h === 'nome' || h === 'grupo');
-    const taskIdx = headers.findIndex(h => h.includes('subitem') || h.includes('tarefa') || h === 'item');
+    // Find key indices - support CSV exported headers too
+    const nameIdx = headers.findIndex(h => h === 'name' || h === 'nome' || h === 'grupo' || h === 'projeto');
+    const taskIdx = headers.findIndex(h => h.includes('subitem') || h.includes('tarefa') || h === 'item' || h === 'setor');
     
     if (taskIdx === -1) {
       toast.error('Não conseguimos identificar a coluna de "Tarefa" ou "Subitem Name".');

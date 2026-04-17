@@ -8,9 +8,10 @@ import {
   TrendingUp, TrendingDown, CheckCircle, 
   Briefcase, Activity, Target, Zap, History, Layout, Archive, Loader2, Box
 } from 'lucide-react';
-import { format, parseISO, subMonths, getMonth, getDaysInMonth, getYear, startOfMonth, endOfMonth, getWeeksInMonth, setMonth } from 'date-fns';
+import { format, parseISO, subMonths, getMonth, getDaysInMonth, getYear, startOfMonth, endOfMonth, getWeeksInMonth, setMonth, lastDayOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { createTask, updateTaskValue, fetchMonthlyGoals } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 const normalizeSearch = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
@@ -135,6 +136,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       }
 
       const dateColId = findColId(['dataEntrega', 'entrega', 'data de entrega', 'prazo', 'DATA DE ENTREGA']);
+      const statusColId = findColId(['status', 'STATUS']);
       const currentYear = new Date().getFullYear();
       let created = 0;
 
@@ -322,7 +324,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         } catch { return; }
         if (!taskDate || taskDate.getMonth() !== monthIdx || taskDate.getFullYear() !== year) return;
 
-        const orado = parseNum(getVal(['orado', 'orcado', 'budget', 'orçamento', 'valor']));
+        const orado = parseNum(getVal(['orado', 'orcado', 'budget', 'orçamento', 'valor', 'valor orçado', 'valor orcado']));
         const statusRaw = normalizeSearch(String(getVal(['status']) || ''));
         const isConcluido = statusRaw.includes('concluido') || statusRaw.includes('feito') || statusRaw.includes('done') || statusRaw.includes('pago');
         const isMontagem = groupTaskCount[g.id] === 1;
@@ -486,20 +488,20 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         return parseFloat(s) || 0;
       };
       
-      const percentual = parseNum(val('percentual', ['conclusao', '%', 'progress', 'progresso']));
-      const orado = parseNum(val('orado', ['orcado', 'budget', 'orçamento', 'orcamento', 'valor']));
-      const semana01 = parseNum(val('semana01', ['sem01', 's1', 'semana01', 'semana 01']));
-      const semana02 = parseNum(val('semana02', ['sem02', 's2', 'semana02', 'semana 02']));
-      const semana03 = parseNum(val('semana03', ['sem03', 's3', 'semana03', 'semana 03']));
-      const semana04 = parseNum(val('semana04', ['sem04', 's4', 'semana04', 'semana 04']));
-      const semana05 = parseNum(val('semana05', ['sem05', 's5', 'semana05', 'semana 05']));
+      const percentual = parseNum(val('percentual', ['conclusao', '%', 'progress', 'progresso', 'Percentual']));
+      const orado = parseNum(val('orado', ['orcado', 'budget', 'orçamento', 'orcamento', 'valor', 'valor orçado', 'valor orcado', 'Valor Orçado']));
+      const semana01 = parseNum(val('semana01', ['sem01', 's1', 'semana01', 'semana 01', 'Semana 01']));
+      const semana02 = parseNum(val('semana02', ['sem02', 's2', 'semana02', 'semana 02', 'Semana 02']));
+      const semana03 = parseNum(val('semana03', ['sem03', 's3', 'semana03', 'semana 03', 'Semana 03']));
+      const semana04 = parseNum(val('semana04', ['sem04', 's4', 'semana04', 'semana 04', 'Semana 04']));
+      const semana05 = parseNum(val('semana05', ['sem05', 's5', 'semana05', 'semana 05', 'Semana 05']));
       
       // Scanner inteligente de faturamento/produção acumulada
       let mes_fechado = 0;
       // Para itens ATIVOS, priorizamos buscar a coluna que se chama literalmente "Mês anterior"
       const mesAnteriorCol = (board.columns || []).find(c => {
         const n = normalizeSearch(c.title);
-        return n === 'mesanterior' || n.includes('anterior');
+        return n === 'mesanterior' || n.includes('anterior') || n === 'mesformula';
       });
       const mesAnteriorId = mesAnteriorCol?.id;
 
@@ -525,7 +527,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         }
       }
 
-      const dataEntregaRaw = val('dataEntrega', ['entrega', 'data de entrega', 'prazo', 'delivery']);
+      const dataEntregaRaw = val('dataEntrega', ['entrega', 'data de entrega', 'prazo', 'delivery', 'Data Entrega', 'data entrega']);
       let dataEntrega: Date | null = null;
       if (dataEntregaRaw) {
         try { 
@@ -544,7 +546,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         name: t.name,
         groupName: g.title,
         groupId: g.id,
-        subitemName: String(val('subitemName', ['setor', 'subitem', 'subitem name', 'responsável', 'assignee'])) || t.name,
+        subitemName: String(val('subitemName', ['setor', 'subitem', 'subitem name', 'responsável', 'assignee', 'Setor'])) || t.name,
         percentual,
         orado,
         semana01,
