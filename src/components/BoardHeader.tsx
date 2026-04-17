@@ -228,16 +228,16 @@ export default function BoardHeader({
     };
 
     const parseNum = (v: any) => {
+      if (!v && v !== 0) return 0;
       if (typeof v === 'number') return v;
-      if (!v) return 0;
-      const clean = String(v).replace(/\s/g, '').replace(',', '.').replace(/[^\d.-]/g, '');
+      const clean = String(v).replace(/[R$\s%]/g, '').replace(/\./g, '').replace(',', '.');
       return parseFloat(clean) || 0;
     };
 
     const headers = [
-      "Projeto", "Setor", "Data Entrega", "Valor Orçado", "Percentual", 
-      "Semana 01", "Semana 02", "Semana 03", "Semana 04", "Semana 05", 
-      "Mês Anterior", "Status", "Ano", "Mes", "Trimestre", "Semestre"
+      "Grupo", "Tarefa", "Percentual (%)", "Orçamento", "Mês Anterior", 
+      "Semana 01 (%)", "Semana 02 (%)", "Semana 03 (%)", "Semana 04 (%)", "Semana 05 (%)", 
+      "Status", "Mês Formula", "Data de Entrega", "Ano", "Mes"
     ];
 
     const now = new Date();
@@ -245,15 +245,29 @@ export default function BoardHeader({
 
     board.groups.forEach(group => {
       group.tasks.forEach(task => {
-        const orado = parseNum(findVal(task, ['orado', 'valor orçado', 'budget']));
+        const orado = parseNum(findVal(task, ['orado', 'valor orçado', 'budget', 'orçamento']));
         const percentual = parseNum(findVal(task, ['percentual', 'progresso', 'percentage', '%']));
         const semana01 = parseNum(findVal(task, ['semana 01', 's01', 'sem 01', 'semana 1']));
         const semana02 = parseNum(findVal(task, ['semana 02', 's02', 'sem 02', 'semana 2']));
         const semana03 = parseNum(findVal(task, ['semana 03', 's03', 'sem 03', 'semana 3']));
         const semana04 = parseNum(findVal(task, ['semana 04', 's04', 'sem 04', 'semana 4']));
         const semana05 = parseNum(findVal(task, ['semana 05', 's05', 'sem 05', 'semana 5']));
-        const mesAnterior = parseNum(findVal(task, ['mês anterior', 'mes anterior', 'histórico', 'mês formula']));
-        const status = String(findVal(task, ['status'])) || 'Pendente';
+        const mesAnterior = parseNum(findVal(task, ['mês anterior', 'mes anterior', 'histórico']));
+        const mesFormula = parseNum(findVal(task, ['mês formula', 'mes formula'])) || mesAnterior; //Fallback
+        const statusRaw = String(findVal(task, ['status']) || '').trim();
+        let finalStatus = statusRaw;
+        const lowerStatus = statusRaw.toLowerCase();
+        if (['done', 'concluido', 'concluído'].includes(lowerStatus)) {
+            finalStatus = 'Concluído';
+        } else if (['working', 'working on it', 'working_on_it', 'em andamento'].includes(lowerStatus)) {
+            finalStatus = 'Em andamento';
+        } else if (['stuck', 'travado'].includes(lowerStatus)) {
+            finalStatus = 'Travado';
+        } else if (['default', 'nao iniciado', 'não iniciado', 'pendente', ''].includes(lowerStatus)) {
+            finalStatus = 'Pendente';
+        } else {
+            finalStatus = STATUS_LABELS[statusRaw as keyof typeof STATUS_LABELS] || statusRaw;
+        }
         
         const dataRaw = findVal(task, ['entrega', 'data de entrega', 'prazo', 'delivery']);
         let dt: Date | null = null;
@@ -273,27 +287,29 @@ export default function BoardHeader({
         const finalDate = dt || now;
         const exportYear = finalDate.getFullYear();
         const exportMonth = finalDate.getMonth() + 1;
-        const exportQuarter = Math.ceil(exportMonth / 3);
-        const exportSemester = exportMonth <= 6 ? 1 : 2;
 
         const row = [
-          group.title,
-          task.name,
-          dt ? format(dt, 'yyyy-MM-dd') : '',
-          orado,
-          percentual,
-          semana01,
-          semana02,
-          semana03,
-          semana04,
-          semana05,
-          mesAnterior,
-          status,
-          exportYear,
-          exportMonth,
-          exportQuarter,
-          exportSemester
-        ].map(v => String(v ?? '').replace(/;/g, ',')).join(';');
+          group.title, // Grupo
+          task.name, // Tarefa
+          percentual, // Percentual (%)
+          orado, // Orçamento
+          mesAnterior, // Mês Anterior
+          semana01, // Semana 01 (%)
+          semana02, // Semana 02 (%)
+          semana03, // Semana 03 (%)
+          semana04, // Semana 04 (%)
+          semana05, // Semana 05 (%)
+          finalStatus, // Status
+          mesFormula, // Mês Formula
+          dt ? format(dt, 'yyyy-MM-dd') : '', // Data de Entrega
+          exportYear, // Ano
+          exportMonth // Mes
+        ].map(v => {
+           if (typeof v === 'number') {
+              return String(v).replace('.', ','); // Converter ponto para vírgula para manter compatibilidade com Excel BR e com o importador do Dash
+           }
+           return String(v ?? '').replace(/;/g, ',');
+        }).join(';');
         
         rows.push(row);
       });
