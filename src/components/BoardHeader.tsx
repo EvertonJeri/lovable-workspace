@@ -230,8 +230,38 @@ export default function BoardHeader({
     const parseNum = (v: any) => {
       if (!v && v !== 0) return 0;
       if (typeof v === 'number') return v;
-      const clean = String(v).replace(/[R$\s%]/g, '').replace(/\./g, '').replace(',', '.');
-      return parseFloat(clean) || 0;
+      
+      let s = String(v).replace(/[R$\s%]/g, '').trim();
+      if (!s) return 0;
+
+      // Handle Million and Thousand suffixes
+      const hasM = s.toUpperCase().includes('M');
+      const hasK = s.toUpperCase().includes('K');
+      s = s.replace(/[MK]/gi, '');
+
+      // Smart parsing of dots and commas
+      if (s.includes(',') && s.includes('.')) {
+        // Both present: assume BR (1.234,56)
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else if (s.includes(',')) {
+        // Only comma: decimal (1234,56)
+        s = s.replace(',', '.');
+      } else if (s.includes('.')) {
+        // Only dot: could be decimal (37.5) or thousands (1.000)
+        // If it's something like "37.5M", dot is decimal.
+        // If it's "1.234" without suffix, it's ambiguous, but usually decimal in modern inputs.
+        // However, if it's "1.000" it might be thousands.
+        const parts = s.split('.');
+        if (parts.length === 2 && parts[1].length === 3 && !hasM && !hasK) {
+          // Likely thousands separator
+          s = s.replace('.', '');
+        }
+      }
+
+      let val = parseFloat(s) || 0;
+      if (hasM) val *= 1000000;
+      if (hasK) val *= 1000;
+      return val;
     };
 
     const headers = [
@@ -243,8 +273,56 @@ export default function BoardHeader({
     const now = new Date();
     const rows: string[] = [];
 
-    board.groups.forEach(group => {
-      group.tasks.forEach(task => {
+    // Order groups: History first
+    const sortedGroups = [...board.groups].sort((a, b) => {
+      const isA = normalize(a.title).includes('historico');
+      const isB = normalize(b.title).includes('historico');
+      if (isA && !isB) return -1;
+      if (!isA && isB) return 1;
+      return 0;
+    });
+
+    sortedGroups.forEach(group => {
+      const isHistory = normalize(group.title).includes('historico');
+      
+      // Sort tasks within group
+      const tasks = [...group.tasks].sort((a, b) => {
+        const parseD = (task: any) => {
+          const raw = findVal(task, ['entrega', 'data de entrega', 'prazo', 'delivery']);
+          if (!raw) return 0;
+          try {
+            const s = String(raw);
+            if (s.includes('/') && s.length <= 10) {
+              const [d, m, y] = s.split('/');
+              return new Date(parseInt(y), parseInt(m)-1, parseInt(d)).getTime();
+            }
+            const dt = new Date(s);
+            return isNaN(dt.getTime()) ? 0 : dt.getTime();
+          } catch(e) { return 0; }
+        };
+
+        const dtA = parseD(a);
+        const dtB = parseD(b);
+        
+        if (dtA !== dtB) return dtA - dtB;
+        
+        // Same date: Parent before Children
+        const nameA = a.name.toLowerCase();
+        const nameB = b.name.toLowerCase();
+        const isChildA = nameA.includes('produ') || nameA.includes('montagem');
+        const isChildB = nameB.includes('produ') || nameB.includes('montagem');
+        
+        if (!isChildA && isChildB) return -1;
+        if (isChildA && !isChildB) return 1;
+        
+        // child order: Produção then Montagem
+        if (nameA.includes('produ') && nameB.includes('montagem')) return -1;
+        if (nameA.includes('montagem') && nameB.includes('produ')) return 1;
+        
+        return 0;
+      });
+
+      tasks.forEach(task => {
         const orado = parseNum(findVal(task, ['orado', 'orcado', 'orcamento', 'orçamento', 'valor orçado', 'valor orcado', 'budget']));
         const percentual = parseNum(findVal(task, ['percentual', 'progresso', 'percentage', '%']));
         const semana01 = parseNum(findVal(task, ['semana 01', 's01', 'sem 01', 'semana 1']));
@@ -252,22 +330,17 @@ export default function BoardHeader({
         const semana03 = parseNum(findVal(task, ['semana 03', 's03', 'sem 03', 'semana 3']));
         const semana04 = parseNum(findVal(task, ['semana 04', 's04', 'sem 04', 'semana 4']));
         const semana05 = parseNum(findVal(task, ['semana 05', 's05', 'sem 05', 'semana 5']));
-        const mesAnterior = parseNum(findVal(task, ['mês anterior', 'mes anterior', 'histórico']));
-        const mesFormula = parseNum(findVal(task, ['mês formula', 'mes formula'])) || mesAnterior; //Fallback
+        const mesAnterior = parseNum(findVal(task, ['mês anterior', 'mes anterior', 'histórico', 'formula', 'mes formula']));
+        const mesFormula = parseNum(findVal(task, ['mês formula', 'mes formula'])) || mesAnterior;
+        
         const statusRaw = String(findVal(task, ['status']) || '').trim();
         let finalStatus = statusRaw;
         const lowerStatus = statusRaw.toLowerCase();
-        if (['done', 'concluido', 'concluído'].includes(lowerStatus)) {
-            finalStatus = 'Concluído';
-        } else if (['working', 'working on it', 'working_on_it', 'em andamento'].includes(lowerStatus)) {
-            finalStatus = 'Em andamento';
-        } else if (['stuck', 'travado'].includes(lowerStatus)) {
-            finalStatus = 'Travado';
-        } else if (['default', 'nao iniciado', 'não iniciado', 'pendente', ''].includes(lowerStatus)) {
-            finalStatus = 'Pendente';
-        } else {
-            finalStatus = STATUS_LABELS[statusRaw as keyof typeof STATUS_LABELS] || statusRaw;
-        }
+        if (['done', 'concluido', 'concluído'].includes(lowerStatus)) finalStatus = 'Concluído';
+        else if (['working', 'em andamento'].includes(lowerStatus)) finalStatus = 'Em andamento';
+        else if (['stuck', 'travado'].includes(lowerStatus)) finalStatus = 'Travado';
+        else if (['nao iniciado', 'não iniciado', 'pendente', ''].includes(lowerStatus)) finalStatus = 'Pendente';
+        else finalStatus = STATUS_LABELS[statusRaw as keyof typeof STATUS_LABELS] || statusRaw;
         
         const dataRaw = findVal(task, ['entrega', 'data de entrega', 'prazo', 'delivery']);
         let dt: Date | null = null;
@@ -275,11 +348,11 @@ export default function BoardHeader({
           try {
             const s = String(dataRaw);
             if (s.includes('/') && s.length <= 10) {
-               const [day, month, year] = s.split('/');
-               dt = new Date(parseInt(year), parseInt(month)-1, parseInt(day));
+              const [day, month, year] = s.split('/');
+              dt = new Date(parseInt(year), parseInt(month)-1, parseInt(day));
             } else {
-               const parsed = new Date(s);
-               if (!isNaN(parsed.getTime())) dt = parsed;
+              const parsed = new Date(s);
+              if (!isNaN(parsed.getTime())) dt = parsed;
             }
           } catch(e) {}
         }
@@ -305,10 +378,14 @@ export default function BoardHeader({
           exportYear, // Ano
           exportMonth // Mes
         ].map(v => {
-           if (typeof v === 'number') {
-              return String(v).replace('.', ','); // Converter ponto para vírgula para manter compatibilidade com Excel BR e com o importador do Dash
-           }
-           return String(v ?? '').replace(/;/g, ',');
+          if (typeof v === 'number') {
+            // Standard formatting for numbers to avoid scientific notation and floating point issues
+            // We use fixed 2 for currency-like values, and dot/comma according to Dash requirements
+            // Dash often expects Brazilian formatted numbers if it's set to PT-BR
+            const formatted = v.toFixed(2).replace('.', ',');
+            return formatted;
+          }
+          return String(v ?? '').replace(/;/g, ',');
         }).join(';');
         
         rows.push(row);

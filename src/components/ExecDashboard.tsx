@@ -259,7 +259,34 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     const parseNum = (v: any): number => {
       if (!v && v !== 0) return 0;
       if (typeof v === 'number') return v;
-      return parseFloat(String(v).replace(/[R$\s%]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+      
+      let s = String(v).replace(/[R$\s%]/g, '').trim();
+      if (!s) return 0;
+
+      // Handle Million and Thousand suffixes
+      const hasM = s.toUpperCase().includes('M');
+      const hasK = s.toUpperCase().includes('K');
+      s = s.replace(/[MK]/gi, '');
+
+      // Smart parsing of dots and commas
+      if (s.includes(',') && s.includes('.')) {
+        // Both present: assume BR (1.234,56)
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else if (s.includes(',')) {
+        // Only comma: decimal (1234,56)
+        s = s.replace(',', '.');
+      } else if (s.includes('.')) {
+        // Only dot: could be decimal (37.5) or thousands (1.000)
+        const parts = s.split('.');
+        if (parts.length === 2 && parts[1].length === 3 && !hasM && !hasK) {
+          s = s.replace('.', '');
+        }
+      }
+
+      let val = parseFloat(s) || 0;
+      if (hasM) val *= 1000000;
+      if (hasK) val *= 1000;
+      return val;
     };
 
     const dateColId = findColId(['dataEntrega', 'entrega', 'data de entrega', 'prazo', 'DATA DE ENTREGA']);
@@ -482,10 +509,36 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       };
 
       const parseNum = (v: any): number => {
-        if (v === undefined || v === null || v === '') return 0;
+        if (!v && v !== 0) return 0;
         if (typeof v === 'number') return v;
-        const s = String(v).replace(/[R$\s%]/g, '').replace(/\./g, '').replace(',', '.').trim();
-        return parseFloat(s) || 0;
+        
+        let s = String(v).replace(/[R$\s%]/g, '').trim();
+        if (!s) return 0;
+
+        // Handle Million and Thousand suffixes
+        const hasM = s.toUpperCase().includes('M');
+        const hasK = s.toUpperCase().includes('K');
+        s = s.replace(/[MK]/gi, '');
+
+        // Smart parsing of dots and commas
+        if (s.includes(',') && s.includes('.')) {
+          // Both present: assume BR (1.234,56)
+          s = s.replace(/\./g, '').replace(',', '.');
+        } else if (s.includes(',')) {
+          // Only comma: decimal (1234,56)
+          s = s.replace(',', '.');
+        } else if (s.includes('.')) {
+          // Only dot: could be decimal (37.5) or thousands (1.000)
+          const parts = s.split('.');
+          if (parts.length === 2 && parts[1].length === 3 && !hasM && !hasK) {
+            s = s.replace('.', '');
+          }
+        }
+
+        let val = parseFloat(s) || 0;
+        if (hasM) val *= 1000000;
+        if (hasK) val *= 1000;
+        return val;
       };
       
       const percentual = parseNum(val('percentual', ['conclusao', '%', 'progress', 'progresso', 'Percentual']));
@@ -1119,9 +1172,9 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
   const formatBRL = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   const formatCompactBRL = (val: number) => {
-    if (val >= 1000000) return `R$ ${(val / 1000000).toFixed(1)}M`;
-    if (val >= 1000) return `R$ ${(val / 1000).toFixed(1)}K`;
-    return `R$ ${val.toFixed(0)}`;
+    if (val >= 1000000) return `R$ ${(val / 1000000).toFixed(2)}M`;
+    if (val >= 1000) return `R$ ${(val / 1000).toFixed(2)}K`;
+    return `R$ ${val.toFixed(2)}`;
   };
 
   return (
@@ -1189,7 +1242,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
             <Target size={16} className="text-blue-500" />
           </div>
           <div>
-            <div className="text-lg md:text-xl font-bold text-slate-800">{conclusaoGeral.toFixed(1)}%</div>
+            <div className="text-lg md:text-xl font-bold text-slate-800">{conclusaoGeral.toFixed(2)}%</div>
           </div>
         </div>
 
@@ -1231,7 +1284,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
           </div>
           <div>
             <div className={`text-lg md:text-xl font-bold ${breakdownTotals.displayProduction >= valueMesAnterior ? 'text-emerald-600' : 'text-red-600'}`}>
-              {valueMesAnterior > 0 ? (((breakdownTotals.displayProduction - valueMesAnterior) / valueMesAnterior) * 100).toFixed(0) : '100'}%
+              {valueMesAnterior > 0 ? (((breakdownTotals.displayProduction - valueMesAnterior) / valueMesAnterior) * 100).toFixed(2) : '100.00'}%
             </div>
           </div>
         </div>
@@ -1243,7 +1296,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
           </div>
           <div>
             <div className={`text-lg md:text-xl font-bold ${breakdownTotals.displayProduction >= monthlyGoal ? 'text-emerald-600' : 'text-slate-800'}`}>
-              {monthlyGoal > 0 ? ((breakdownTotals.displayProduction / monthlyGoal) * 100).toFixed(0) : 0}%
+              {monthlyGoal > 0 ? ((breakdownTotals.displayProduction / monthlyGoal) * 100).toFixed(2) : '0.00'}%
             </div>
             <div className="text-[9px] text-slate-400 font-medium mt-1">Em relação a meta</div>
           </div>
@@ -1296,7 +1349,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <p className="text-xs font-bold text-blue-700">{formatBRL(fabrica)}</p>
-                                {total > 0 && <span className="text-[10px] bg-blue-50 text-blue-600 px-1 rounded font-bold">{((fabrica/total)*100).toFixed(0)}%</span>}
+                                {total > 0 && <span className="text-[10px] bg-blue-50 text-blue-600 px-1 rounded font-bold">{((fabrica/total)*100).toFixed(2)}%</span>}
                               </div>
                             </div>
                           )}
@@ -1308,7 +1361,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <p className="text-xs font-bold text-amber-700">{formatBRL(montagem)}</p>
-                                {total > 0 && <span className="text-[10px] bg-amber-50 text-amber-600 px-1 rounded font-bold">{((montagem/total)*100).toFixed(0)}%</span>}
+                                {total > 0 && <span className="text-[10px] bg-amber-50 text-amber-600 px-1 rounded font-bold">{((montagem/total)*100).toFixed(2)}%</span>}
                               </div>
                             </div>
                           )}
@@ -1335,7 +1388,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
                                     const isAbove = pct >= 0;
                                     return (
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${isAbove ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
-                                        {isAbove ? '+' : ''}{pct.toFixed(0)}%
+                                        {isAbove ? '+' : ''}{pct.toFixed(2)}%
                                       </span>
                                     );
                                   })()}
