@@ -262,12 +262,10 @@ export default function BoardHeader({
       if (hasM) val *= 1000000;
       if (hasK) val *= 1000;
       return val;
-    };
-
-    const headers = [
-      "Grupo", "Tarefa", "Percentual (%)", "Orçamento", "Mês Anterior", 
+    };    const headers = [
+      "Grupo", "Tarefa", "% Peso", "Orçamento Líquido", 
       "Semana 01 (%)", "Semana 02 (%)", "Semana 03 (%)", "Semana 04 (%)", "Semana 05 (%)", 
-      "Status", "Mês Formula", "Data de Entrega", "Ano", "Mes"
+      "Mês Anterior (%)", "Status", "Mês Fórmula", "Data de Entrega", "Mês", "Ano"
     ];
 
     const now = new Date();
@@ -323,15 +321,15 @@ export default function BoardHeader({
       });
 
       tasks.forEach(task => {
-        const orado = parseNum(findVal(task, ['orado', 'orcado', 'orcamento', 'orçamento', 'valor orçado', 'valor orcado', 'budget']));
-        const percentual = parseNum(findVal(task, ['percentual', 'progresso', 'percentage', '%']));
+        const orado = parseNum(findVal(task, ['orado', 'orcado', 'orcamento', 'orçamento', 'valor orçado', 'valor orcado', 'budget', 'liquido']));
+        const percentual = parseNum(findVal(task, ['percentual', 'progresso', 'percentage', '%', 'peso']));
         const semana01 = parseNum(findVal(task, ['semana 01', 's01', 'sem 01', 'semana 1']));
         const semana02 = parseNum(findVal(task, ['semana 02', 's02', 'sem 02', 'semana 2']));
         const semana03 = parseNum(findVal(task, ['semana 03', 's03', 'sem 03', 'semana 3']));
         const semana04 = parseNum(findVal(task, ['semana 04', 's04', 'sem 04', 'semana 4']));
         const semana05 = parseNum(findVal(task, ['semana 05', 's05', 'sem 05', 'semana 5']));
-        const mesAnterior = parseNum(findVal(task, ['mês anterior', 'mes anterior', 'histórico', 'formula', 'mes formula']));
-        const mesFormula = parseNum(findVal(task, ['mês formula', 'mes formula'])) || mesAnterior;
+        const mesAnterior = parseNum(findVal(task, ['mês anterior', 'mes anterior', 'ant. (%)', 'ant (%)', 'historico']));
+        const mesFormula = parseNum(findVal(task, ['mês formula', 'mes formula', 'formula'])) || mesAnterior;
         
         const statusRaw = String(findVal(task, ['status']) || '').trim();
         let finalStatus = statusRaw;
@@ -364,24 +362,22 @@ export default function BoardHeader({
         const row = [
           group.title, // Grupo
           task.name, // Tarefa
-          percentual, // Percentual (%)
-          orado, // Orçamento
-          mesAnterior, // Mês Anterior
+          percentual, // % Peso
+          orado, // Orçamento Líquido
           semana01, // Semana 01 (%)
           semana02, // Semana 02 (%)
           semana03, // Semana 03 (%)
           semana04, // Semana 04 (%)
           semana05, // Semana 05 (%)
+          mesAnterior, // Mês Anterior (%)
           finalStatus, // Status
-          mesFormula, // Mês Formula
+          mesFormula, // Mês Fórmula
           dt ? format(dt, 'yyyy-MM-dd') : '', // Data de Entrega
-          exportYear, // Ano
-          exportMonth // Mes
+          exportMonth, // Mês
+          exportYear // Ano
         ].map(v => {
           if (typeof v === 'number') {
             // Standard formatting for numbers to avoid scientific notation and floating point issues
-            // We use fixed 2 for currency-like values, and dot/comma according to Dash requirements
-            // Dash often expects Brazilian formatted numbers if it's set to PT-BR
             const formatted = v.toFixed(2).replace('.', ',');
             return formatted;
           }
