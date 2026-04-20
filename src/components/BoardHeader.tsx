@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Board, ViewMode, STATUS_LABELS, PRIORITY_LABELS } from '@/types/board';
-import { format, setMonth } from 'date-fns';
+import { format, setMonth, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   DropdownMenu,
@@ -340,7 +340,7 @@ export default function BoardHeader({
         else if (['nao iniciado', 'não iniciado', 'pendente', ''].includes(lowerStatus)) finalStatus = 'Pendente';
         else finalStatus = STATUS_LABELS[statusRaw as keyof typeof STATUS_LABELS] || statusRaw;
         
-        const dataRaw = findVal(task, ['entrega', 'data de entrega', 'prazo', 'delivery']);
+        const dataRaw = findVal(task, ['entrega', 'data de entrega', 'data entrega', 'dataentrega', 'prazo', 'delivery']);
         let dt: Date | null = null;
         if (dataRaw) {
           try {
@@ -349,13 +349,31 @@ export default function BoardHeader({
               const [day, month, year] = s.split('/');
               dt = new Date(parseInt(year), parseInt(month)-1, parseInt(day));
             } else {
-              const parsed = new Date(s);
-              if (!isNaN(parsed.getTime())) dt = parsed;
+              const parsed = parseISO(s);
+              if (isValid(parsed)) {
+                dt = parsed;
+              } else {
+                const altParsed = new Date(s);
+                if (!isNaN(altParsed.getTime())) dt = altParsed;
+              }
             }
           } catch(e) {}
         }
         
-        const finalDate = dt || now;
+        // Infer month/year from name for historical items if date is missing
+        let inferMonth = now.getMonth();
+        let inferYear = now.getFullYear();
+        if (!dt && normalize(group.title).includes('historico')) {
+          const nameNorm = normalize(task.name);
+          const monthNames = ['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+          const mIdx = monthNames.findIndex(m => nameNorm.includes(m));
+          if (mIdx !== -1) inferMonth = mIdx;
+          
+          const yearMatch = task.name.match(/\b(20\d{2})\b/);
+          if (yearMatch) inferYear = parseInt(yearMatch[1]);
+        }
+
+        const finalDate = dt || new Date(inferYear, inferMonth, 1);
         const exportYear = finalDate.getFullYear();
         const exportMonth = finalDate.getMonth() + 1;
 
@@ -372,7 +390,7 @@ export default function BoardHeader({
           mesAnterior, // Mês Anterior (%)
           finalStatus, // Status
           mesFormula, // Mês Fórmula
-          dt ? format(dt, 'yyyy-MM-dd') : '', // Data de Entrega
+          dt ? format(dt, 'dd/MM/yyyy') : '', // Data de Entrega
           exportMonth, // Mês
           exportYear // Ano
         ].map(v => {
