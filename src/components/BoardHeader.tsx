@@ -342,22 +342,37 @@ export default function BoardHeader({
         
         const dataRaw = findVal(task, ['entrega', 'data de entrega', 'data entrega', 'dataentrega', 'prazo', 'delivery']);
         let dt: Date | null = null;
+        let dateStr = '';
+
         if (dataRaw) {
-          try {
-            const s = String(dataRaw);
+          const s = String(dataRaw).trim();
+          if (s) {
+            // Case 1: dd/mm/yyyy
             if (s.includes('/') && s.length <= 10) {
               const [day, month, year] = s.split('/');
               dt = new Date(parseInt(year), parseInt(month)-1, parseInt(day));
-            } else {
+              dateStr = format(dt, 'yyyy-MM-dd');
+            } 
+            // Case 2: yyyy-MM-dd (ISO)
+            else if (s.match(/^\d{4}-\d{2}-\d{2}/)) {
+              dateStr = s.substring(0, 10);
+              dt = parseISO(dateStr);
+            }
+            // Case 3: Other date formats
+            else {
               const parsed = parseISO(s);
               if (isValid(parsed)) {
                 dt = parsed;
+                dateStr = format(dt, 'yyyy-MM-dd');
               } else {
                 const altParsed = new Date(s);
-                if (!isNaN(altParsed.getTime())) dt = altParsed;
+                if (!isNaN(altParsed.getTime())) {
+                  dt = altParsed;
+                  dateStr = format(dt, 'yyyy-MM-dd');
+                }
               }
             }
-          } catch(e) {}
+          }
         }
         
         // Infer month/year from name for historical items if date is missing
@@ -390,7 +405,7 @@ export default function BoardHeader({
           mesAnterior, // Mês Anterior (%)
           finalStatus, // Status
           mesFormula, // Mês Fórmula
-          dt ? format(dt, 'yyyy-MM-dd') : '', // Data de Entrega
+          dateStr || (dt ? format(dt, 'yyyy-MM-dd') : ''), // Data de Entrega
           exportMonth, // Mês
           exportYear // Ano
         ].map(v => {
@@ -399,7 +414,12 @@ export default function BoardHeader({
             const formatted = v.toFixed(2).replace('.', ',');
             return formatted;
           }
-          return String(v ?? '').replace(/;/g, ',');
+          const s = String(v ?? '').replace(/;/g, ',');
+          // Force Excel to treat YYYY-MM-DD as text to prevent it from reformatting to local date (DD/MM/YYYY)
+          if (s.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            return `="${s}"`;
+          }
+          return s;
         }).join(';');
         
         rows.push(row);
@@ -411,7 +431,7 @@ export default function BoardHeader({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `tabela_desempenho_${format(now, 'yyyy_MM_dd')}.csv`);
+    link.setAttribute("download", `tabela_desempenho_${format(now, 'yyyy-MM-dd')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
