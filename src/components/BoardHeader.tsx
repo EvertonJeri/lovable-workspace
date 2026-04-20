@@ -390,7 +390,7 @@ export default function BoardHeader({
           mesAnterior, // Mês Anterior (%)
           finalStatus, // Status
           mesFormula, // Mês Fórmula
-          dt ? format(dt, 'dd/MM/yyyy') : '', // Data de Entrega
+          dt ? format(dt, 'yyyy-MM-dd') : '', // Data de Entrega
           exportMonth, // Mês
           exportYear // Ano
         ].map(v => {
