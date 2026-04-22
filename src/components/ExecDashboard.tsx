@@ -358,12 +358,18 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         const target = isMontagem ? monByWeek : fabByWeek;
 
         const weeklyPctSum = semanas.reduce((s, k) => s + parseNum(getVal([k])), 0);
+        const mesAnteriorVal = getVal(['mes_fechado', 'mês anterior', 'Mês anterior', 'Mês Formula', 'formula', 'mesanterior']);
+        const mesAnteriorPct = parseNum(mesAnteriorVal);
+        const prevMonthProducedValue = (mesAnteriorPct * orado) / 100;
+
         if (isConcluido) {
           if (weeklyPctSum > 0) {
             semanas.forEach(k => { target[k] += (parseNum(getVal([k])) * orado) / 100; });
           } else {
-            const lastSem = semanas.slice().reverse().find(k => parseNum(getVal([k])) > 0) || 'semana05';
-            target[lastSem] += orado;
+            // Se concluído sem semanas, injeta apenas o que resta (descontando produção anterior)
+            const remainingToProduce = Math.max(0, orado - prevMonthProducedValue);
+            const lastSem = semanas.slice().reverse().find(k => parseNum(getVal([k])) > 0) || 'semana01';
+            target[lastSem] += remainingToProduce;
           }
         } else {
           semanas.forEach(k => { target[k] += (parseNum(getVal([k])) * orado) / 100; });
@@ -850,10 +856,11 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       const isConcluido = statusNorm.includes('concluido') || statusNorm.includes('feito') || statusNorm.includes('done') || statusNorm.includes('pago');
       const weeklySumPerc = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
       
-      // Se concluído e sem semanas preenchidas, assume 100%. Senão, usa as semanas.
+      // Se concluído e sem semanas preenchidas, assume o restante (100% - faturamento anterior)
       let producedValue = 0;
       if (isConcluido && weeklySumPerc === 0) {
-        producedValue = budget;
+        const prevMonthProduced = (item.mes_fechado * budget) / 100;
+        producedValue = Math.max(0, budget - prevMonthProduced);
       } else {
         producedValue = (weeklySumPerc * budget) / 100;
       }
@@ -931,8 +938,10 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
           semanas.forEach(sem => { const v = ((item[sem] || 0) * budget) / 100; valueByWeek[sem] += v; targetMap[sem] += v; });
         } else {
           const lastSem = item.semana05 ? 'semana05' : item.semana04 ? 'semana04' : item.semana03 ? 'semana03' : item.semana02 ? 'semana02' : 'semana01';
-          valueByWeek[lastSem] += budget;
-          targetMap[lastSem] += budget;
+          const prevMonthProduced = (item.mes_fechado * budget) / 100;
+          const remainingToProduce = Math.max(0, budget - prevMonthProduced);
+          valueByWeek[lastSem] += remainingToProduce;
+          targetMap[lastSem] += remainingToProduce;
         }
       } else {
         semanas.forEach(sem => { const v = ((item[sem] || 0) * budget) / 100; valueByWeek[sem] += v; targetMap[sem] += v; });
@@ -1082,7 +1091,9 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       const statusNorm = normalizeSearch(item.status);
       const isConcluido = statusNorm.includes('concluido') || statusNorm.includes('feito') || statusNorm.includes('done') || statusNorm.includes('pago');
       const weeklySumPerc = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0);
-      let producedValue = (isConcluido && weeklySumPerc === 0) ? budget : (weeklySumPerc * budget) / 100;
+      let producedValue = (isConcluido && weeklySumPerc === 0) 
+        ? Math.max(0, budget - (item.mes_fechado * budget / 100)) 
+        : (weeklySumPerc * budget) / 100;
       sectorMap[sector].produced += producedValue;
       sectorMap[sector].budget += budget;
     });

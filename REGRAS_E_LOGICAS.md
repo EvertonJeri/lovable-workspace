@@ -194,7 +194,8 @@ Para cada item em `dashboardItems`:
 
 ### Itens Ativos — Concluídos:
 - Se tem semanas preenchidas → `valor_semana = (semanaX% × orado) / 100`
-- Se não tem semanas → lança todo `orado` na última semana com valor, ou em `semana01`
+- Se não tem semanas → lança o valor restante (`orado - produção_acumulada_mes_anterior`) na última semana com valor ou fallback em `semana01`
+- Isso evita que o dashboard infle o valor do mês atual com o que já foi faturado anteriormente.
 
 ### Itens Ativos — Em Progresso:
 - `valor_semana = (semanaX% × orado) / 100`
@@ -276,7 +277,7 @@ Disparado pelo botão "Fechar Mês" (fecha o mês anterior automaticamente).
 
 **Lógica de produção por semana (fechamento):**
 - Item **Concluído** com semanas preenchidas → `semanaX_valor = (semanaX% × orado) / 100`
-- Item **Concluído** sem semanas → Todo `orado` na última semana com valor (fallback: `semana05`)
+- Item **Concluído** sem semanas → Lança o valor restante (`orado - produção_acumulada_mes_anterior`) na última semana com valor (fallback: `semana01`)
 - Item **Em progresso** → `semanaX_valor = (semanaX% × orado) / 100`
 
 ---
