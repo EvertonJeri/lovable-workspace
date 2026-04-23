@@ -257,26 +257,27 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     }
 
     const parseNum = (v: any): number => {
+      if (typeof v === 'number') return isFinite(v) ? v : 0;
       if (!v && v !== 0) return 0;
-      if (typeof v === 'number') return v;
       
       let s = String(v).replace(/[R$\s%]/g, '').trim();
       if (!s) return 0;
 
-      // Handle Million and Thousand suffixes
       const hasM = s.toUpperCase().includes('M');
       const hasK = s.toUpperCase().includes('K');
       s = s.replace(/[MK]/gi, '');
 
-      // Smart parsing of dots and commas
-      if (s.includes(',') && s.includes('.')) {
+      // Handle multiple dots as thousand separators (e.g., 1.501.326)
+      if (s.split('.').length > 2 && !s.includes(',')) {
+        s = s.replace(/\./g, '');
+      } else if (s.includes(',') && s.includes('.')) {
         // Both present: assume BR (1.234,56)
         s = s.replace(/\./g, '').replace(',', '.');
       } else if (s.includes(',')) {
         // Only comma: decimal (1234,56)
         s = s.replace(',', '.');
       } else if (s.includes('.')) {
-        // Only dot: could be decimal (37.5) or thousands (1.000)
+        // Only dot: check if it's likely a thousands separator (e.g., 1.000)
         const parts = s.split('.');
         if (parts.length === 2 && parts[1].length === 3 && !hasM && !hasK) {
           s = s.replace('.', '');

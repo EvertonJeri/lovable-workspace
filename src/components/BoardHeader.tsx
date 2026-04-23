@@ -227,33 +227,30 @@ export default function BoardHeader({
       return '';
     };
 
-    const parseNum = (v: any) => {
+    const parseNum = (v: any): number => {
+      if (typeof v === 'number') return isFinite(v) ? v : 0;
       if (!v && v !== 0) return 0;
-      if (typeof v === 'number') return v;
       
       let s = String(v).replace(/[R$\s%]/g, '').trim();
       if (!s) return 0;
 
-      // Handle Million and Thousand suffixes
       const hasM = s.toUpperCase().includes('M');
       const hasK = s.toUpperCase().includes('K');
       s = s.replace(/[MK]/gi, '');
 
-      // Smart parsing of dots and commas
-      if (s.includes(',') && s.includes('.')) {
+      // Handle multiple dots as thousand separators (e.g., 1.501.326)
+      if (s.split('.').length > 2 && !s.includes(',')) {
+        s = s.replace(/\./g, '');
+      } else if (s.includes(',') && s.includes('.')) {
         // Both present: assume BR (1.234,56)
         s = s.replace(/\./g, '').replace(',', '.');
       } else if (s.includes(',')) {
         // Only comma: decimal (1234,56)
         s = s.replace(',', '.');
       } else if (s.includes('.')) {
-        // Only dot: could be decimal (37.5) or thousands (1.000)
-        // If it's something like "37.5M", dot is decimal.
-        // If it's "1.234" without suffix, it's ambiguous, but usually decimal in modern inputs.
-        // However, if it's "1.000" it might be thousands.
+        // Only dot: check if it's likely a thousands separator (e.g., 1.000)
         const parts = s.split('.');
         if (parts.length === 2 && parts[1].length === 3 && !hasM && !hasK) {
-          // Likely thousands separator
           s = s.replace('.', '');
         }
       }
@@ -263,7 +260,7 @@ export default function BoardHeader({
       if (hasK) val *= 1000;
       return val;
     };    const headers = [
-      "Grupo", "Tarefa", "% Peso", "Orçamento Líquido", 
+      "Grupo", "Tarefa", "% Peso", "Valor Orçado", 
       "Semana 01 (%)", "Semana 02 (%)", "Semana 03 (%)", "Semana 04 (%)", "Semana 05 (%)", 
       "Mês Anterior (%)", "Status", "Mês Fórmula", "Data de Entrega", "Mês", "Ano"
     ];
@@ -411,7 +408,9 @@ export default function BoardHeader({
         ].map(v => {
           if (typeof v === 'number') {
             // Standard formatting for numbers to avoid scientific notation and floating point issues
-            const formatted = v.toFixed(2).replace('.', ',');
+            // Using a simple fixed decimal to avoid massive numbers or weird rounding
+            const num = isFinite(v) ? v : 0;
+            const formatted = num.toFixed(2).replace('.', ',');
             return formatted;
           }
           const s = String(v ?? '').replace(/;/g, ',');
