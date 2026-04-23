@@ -1244,7 +1244,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12 gap-3 md:gap-4 items-stretch">
         <div className="col-span-1 xl:col-span-1 h-full">
-          <KPICard title="Projetos" value={uniqueProjects} icon={<Briefcase size={20} />} />
+          <KPICard title="Jobs" value={uniqueProjects} icon={<Briefcase size={20} />} />
         </div>
         
         <div className="bg-white rounded-lg p-3 md:p-4 border border-slate-200 shadow-sm flex flex-col justify-between col-span-1 xl:col-span-1 h-full min-h-[90px] md:min-h-[100px]">
@@ -1277,7 +1277,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
         <div className="col-span-1 md:col-span-2 xl:col-span-2 h-full">
           <KPICard 
-            title={selectedMonth === 'all' ? "Orçado (Geral)" : `Orçado (${currentMonthName})`} 
+            title={selectedMonth === 'all' ? "A produzir (Geral)" : `A produzir (${currentMonthName})`} 
             value={formatBRL(valorProjetadoMes)} 
             subtitle="Projetado p/ entrega" 
             icon={<Zap size={20} className="text-amber-500" />} 
@@ -1285,7 +1285,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
         </div>
         
         <div className="col-span-2 md:col-span-2 xl:col-span-2 h-full">
-          <KPICard title={`Fechado (${prevMonthName})`} value={formatBRL(valueMesAnterior)} subtitle="Faturamento anterior" icon={<History size={20} className="text-slate-400" />} />
+          <KPICard title={`Produzido (${prevMonthName})`} value={formatBRL(valueMesAnterior)} subtitle="Faturamento anterior" icon={<History size={20} className="text-slate-400" />} />
         </div>
 
         <div className="bg-white rounded-lg p-3 md:p-4 border border-slate-200 shadow-sm flex flex-col justify-between col-span-1 md:col-span-2 xl:col-span-1 h-full min-h-[90px] md:min-h-[100px]">
@@ -1498,7 +1498,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
 
         {/* Status dos Projetos - Linha 1, coluna 3 */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col overflow-hidden lg:col-start-3 lg:row-start-1">
-          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Status dos Projetos ({currentMonthName})</h3>
+          <h3 className="text-lg font-bold text-slate-800 mb-4 tracking-tight">Status dos Jobs ({currentMonthName})</h3>
           <div className="overflow-y-auto pr-2 space-y-3" style={{ height: '280px' }}>
              {groupSummaries.map(proj => (
                <div 
@@ -1513,7 +1513,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
                      <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${proj.avgPercent >= 90 ? 'bg-emerald-100 text-emerald-700' : proj.avgPercent < 50 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{proj.avgPercent.toFixed(0)}%</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-1.5 mb-2"><div className={`h-1.5 rounded-full transition-all duration-500 ${selectedProject === proj.id ? 'bg-blue-600' : 'bg-slate-800'}`} style={{ width: `${Math.min(proj.avgPercent, 100)}%` }} /></div>
-                  <div className="flex justify-between text-xs text-slate-500"><span>{proj.pendentes} pendentes</span><span className="font-medium text-slate-700">{formatCompactBRL(proj.oradoSum)} orçado</span></div>
+                  <div className="flex justify-between text-xs text-slate-500"><span>{proj.pendentes} pendentes</span><span className="font-medium text-slate-700">{formatCompactBRL(proj.oradoSum)} a produzir</span></div>
                </div>
              ))}
           </div>
@@ -1537,7 +1537,7 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
                   </div>
                   <div className="flex justify-between text-xs text-slate-500">
                     <span>{formatCompactBRL(sector.produced)} produzido</span>
-                    <span className="font-medium text-slate-700">{formatCompactBRL(sector.budget)} orçado</span>
+                    <span className="font-medium text-slate-700">{formatCompactBRL(sector.budget)} a produzir</span>
                   </div>
                 </div>
               ))
