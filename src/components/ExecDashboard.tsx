@@ -52,9 +52,91 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
   const [selectedWeek, setSelectedWeek] = useState<string>('all');
   const [selectedSector, setSelectedSector] = useState<string>('all');
   const [selectedProject, setSelectedProject] = useState<string>('all');
-  const selectedMonth = selectedMonthExternal || String(new Date().getMonth());
+
+  // Logic to find the first unclosed month in history
+  const activeMonthIdx = useMemo(() => {
+    const now = new Date();
+    const currentMonthIdx = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    const histGroup = board.groups.find(g => normalizeSearch(g.title).includes('historico'));
+    if (!histGroup) return currentMonthIdx;
+    
+    const findId = (titles: string[]) => {
+      for (const t of titles) {
+        const norm = normalizeSearch(t);
+        const col = board.columns.find(c => normalizeSearch(c.title) === norm);
+        if (col) return col.id;
+      }
+      return null;
+    };
+    
+    const dateColId = findId(['dataEntrega', 'entrega', 'data de entrega', 'prazo', 'DATA DE ENTREGA']);
+    const statusColId = findId(['status', 'STATUS']);
+    
+    let firstUnclosedMonth = currentMonthIdx;
+    
+    for (let i = 0; i <= 6; i++) {
+      const targetDate = subMonths(now, i);
+      const targetMonth = targetDate.getMonth();
+      const targetYear = targetDate.getFullYear();
+      
+      const isClosed = histGroup.tasks.some(t => {
+        const nameNorm = normalizeSearch(t.name);
+        // Ignore sub-rows
+        if (nameNorm.startsWith('producao') || nameNorm.startsWith('montagem')) return false;
+        
+        // Check for "Concluído" status to consider it closed
+        const statusVal = statusColId ? normalizeSearch(String(t.columnValues[statusColId] || '')) : '';
+        const isDone = statusVal.includes('concluido') || statusVal.includes('feito') || statusVal.includes('done') || statusVal.includes('pago');
+        if (!isDone && statusColId) return false;
+
+        const dateVal = dateColId ? t.columnValues[dateColId] : null;
+        if (!dateVal) {
+          // Fallback: check if the month name is in the task name
+          const monthNames = ['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+          return nameNorm.includes(monthNames[targetMonth]) && (nameNorm.includes(String(targetYear)) || i < 6);
+        }
+
+        try {
+          let d: Date;
+          const s = String(dateVal);
+          if (s.includes('/') && s.length <= 10) {
+            const [dd, mm, yy] = s.split('/');
+            d = new Date(parseInt(yy), parseInt(mm)-1, parseInt(dd));
+          } else { d = parseISO(s); }
+          return d.getMonth() === targetMonth && d.getFullYear() === targetYear;
+        } catch { return false; }
+      });
+      
+      if (isClosed) {
+        if (i === 0) return currentMonthIdx;
+        const activeDate = subMonths(now, i - 1);
+        return activeDate.getMonth();
+      }
+      
+      if (i === 1 && !isClosed) {
+          firstUnclosedMonth = targetMonth;
+      }
+    }
+    
+    return firstUnclosedMonth;
+  }, [board.groups, board.columns]);
+
+  const [hasAutoAdjusted, setHasAutoAdjusted] = useState(false);
+  const selectedMonth = selectedMonthExternal || String(activeMonthIdx);
   const [monthlyGoal, setMonthlyGoal] = useState<number>(300000);
   const [includeSaturdays, setIncludeSaturdays] = useState<boolean>(false);
+
+  // Sync back the active month to the external state if it's currently defaulting to the real current month
+  useEffect(() => {
+    const realCurrentMonth = new Date().getMonth();
+    // We only auto-adjust once on load if the selected month is the default "real current" month
+    if (!hasAutoAdjusted && selectedMonthExternal === String(realCurrentMonth) && activeMonthIdx !== realCurrentMonth && onMonthChangeExternal) {
+      onMonthChangeExternal(String(activeMonthIdx));
+      setHasAutoAdjusted(true);
+    }
+  }, [activeMonthIdx, selectedMonthExternal, onMonthChangeExternal, hasAutoAdjusted]);
 
   const uniqueSectors = useMemo(() => {
     const sectorsMap = new Map<string, string>(); // normalized -> display
@@ -717,19 +799,19 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
       } else {
         const monthIdx = parseInt(selectedMonth);
         const currentYear = now.getFullYear();
-        const isSelectedCurrentMonth = monthIdx === now.getMonth() && currentYear === now.getFullYear();
+        const isActiveMonth = monthIdx === activeMonthIdx;
 
         const matchesDate = item.dataEntrega && 
                            getMonth(item.dataEntrega) === monthIdx && 
                            getYear(item.dataEntrega) === currentYear;
         
-        // Regra de Adiantamento: Se for futuro, mas tiver progresso nas semanas, no percentual geral ou status alterado, entra no mês vigente
+        // Regra de Adiantamento: Se for o mês ativo (não fechado), mas tiver progresso nas semanas, no percentual geral ou status alterado, entra no mês vigente
         const hasWeeklyProgress = (item.semana01 || 0) + (item.semana02 || 0) + (item.semana03 || 0) + (item.semana04 || 0) + (item.semana05 || 0) > 0;
         const hasGeneralProgress = (item.percentual || 0) > 0;
         const statusNorm = normalizeSearch(item.status);
         const hasActiveStatus = statusNorm !== "" && statusNorm !== "nao iniciado" && statusNorm !== "pendente";
         
-        const isFutureAdvance = isSelectedCurrentMonth && item.dataEntrega && item.dataEntrega > endOfMonth(now) && (hasWeeklyProgress || hasGeneralProgress || hasActiveStatus);
+        const isFutureAdvance = isActiveMonth && item.dataEntrega && item.dataEntrega > endOfMonth(displayMonthDate) && (hasWeeklyProgress || hasGeneralProgress || hasActiveStatus);
 
         return matchesDate || isFutureAdvance;
       }
