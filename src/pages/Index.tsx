@@ -839,14 +839,14 @@ export default function Index() {
     const s = (searchTerm || "").toLowerCase().trim();
     const isSearching = s.length > 0;
     const isFiltering = Object.values(activeFilters).some(v => v && v.length > 0);
-    // IMPORTANTE: O filtro de mês só influencia a Tabela e Gantt. 
-    // O Dashboard gerencia seu próprio filtro de mês interno para os KPIs, 
-    // mas precisa de todos os dados para o gráfico de Histórico.
-    const isMonthFilterActive = selectedMonth !== 'all' && viewMode !== 'dashboard';
-    
+    // IMPORTANTE: O filtro de mês é gerenciado internamente pelo Dashboard.
+    // Tabela, Gantt e demais views NÃO devem ser filtradas pelo mês selecionado no dashboard,
+    // pois isso esvaziava a tabela ao alternar de view (IDs de coluna de data não batiam).
+    const isMonthFilterActive = false;
+
     const now = new Date();
     const currentMonthIdx = now.getMonth();
-    const targetMonthIdx = isMonthFilterActive ? parseInt(selectedMonth) : -1;
+    const targetMonthIdx = -1;
 
     // 1. Caso base: sem filtros ativos (Mas ainda aplicamos o filtro de mês se selecionado e não for dashboard)
     if (!isSearching && !isFiltering && !isMonthFilterActive) {
