@@ -123,20 +123,11 @@ export default function ExecDashboard({ board, selectedMonthExternal, onMonthCha
     return firstUnclosedMonth;
   }, [board.groups, board.columns]);
 
-  const [hasAutoAdjusted, setHasAutoAdjusted] = useState(false);
-  const selectedMonth = selectedMonthExternal || String(activeMonthIdx);
+  const selectedMonth = selectedMonthExternal || String(new Date().getMonth());
   const [monthlyGoal, setMonthlyGoal] = useState<number>(300000);
   const [includeSaturdays, setIncludeSaturdays] = useState<boolean>(false);
 
-  // Sync back the active month to the external state if it's currently defaulting to the real current month
-  useEffect(() => {
-    const realCurrentMonth = new Date().getMonth();
-    // We only auto-adjust once on load if the selected month is the default "real current" month
-    if (!hasAutoAdjusted && selectedMonthExternal === String(realCurrentMonth) && activeMonthIdx !== realCurrentMonth && onMonthChangeExternal) {
-      onMonthChangeExternal(String(activeMonthIdx));
-      setHasAutoAdjusted(true);
-    }
-  }, [activeMonthIdx, selectedMonthExternal, onMonthChangeExternal, hasAutoAdjusted]);
+  // O filtro de mês sempre inicia no mês vigente (não auto-ajusta para mês não fechado).
 
   const uniqueSectors = useMemo(() => {
     const sectorsMap = new Map<string, string>(); // normalized -> display
